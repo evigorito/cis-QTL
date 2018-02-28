@@ -197,7 +197,7 @@ if(nrow(counts.g) == 0){  ## if no counts, stop running
 
                         ##fix.input1 <- lapply(stan.in1, fixhap.eff)
 
-                        stan.prob <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan', data=stan.in2[[1]])
+                        stan.prob <- stan(file='Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan', data=stan.in2[[1]])
 
                         ##save results
                         ##saveRDS(stan.prob, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.',lm.genes[line,SNP.x],'.prob.rds'))
