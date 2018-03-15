@@ -1,6 +1,6 @@
 library(data.table)
 source('/home/ev250/Cincinatti/Functions/various.R')
-
+##library(snpStats)
 
 #' Open vcf in R via bcftools query
 #'
@@ -130,24 +130,76 @@ cl_coord<- function(file,chr,gene,cw=500000){
 
 fhaps<- function(file1, file2, snps){
     ## get line number for snp from legend file
+    ##snp.st <- paste0("/",snps)
+    ##sed.mult <- paste(snp.st, collapse="/= ;") ## quicker but I loose track of snps if some arent on ref panel
+    
     line <- lapply(1:length(snps), function(i) paste0("zcat ", file1, " | sed -n  '/", snps[i], "/='"))  #sed a little bit quicker than awk and grep
     
-    nlines <- lapply(line, function(i) as.numeric(system(i, intern=TRUE))) ##  slow
+    nlines <- lapply(line, function(i) as.numeric(system(i, intern=TRUE))) ## slow but need to kepp track of snps in case some are not in reference panel 
     names(nlines) <- snps
     
     ## sort before reading
     nlines <- sort(unlist(nlines))
+
+    if(length(nlines)==0){
+        return("no snps in reference panel")
+
+    } else {
     
-    ## get haplotypes for fsnps in ref panel, extract from hap.gz file
-    ## first line in legend file is headings, need to substract 1 to match hap.gz file
-    p.nlines <- paste0(nlines-1, "p")
     
-    haps <- paste0("zcat ", file2, " | sed -n '", paste(p.nlines, collapse="; "), "' ")
-    rf <- fread(haps, header=F)  ## referene panel for snps in hap format
-    mat <- as.matrix(rf)
-    rownames(mat) <- names(nlines)
-    return(mat)
+        ## get haplotypes for fsnps in ref panel, extract from hap.gz file
+        ## first line in legend file is headings, need to substract 1 to match hap.gz file
+        
+        p.nlines <- paste0(nlines-1, "p")
+        s.nlines <- nlines-1
+
+        ## find stretches of sequencial lines to improve running time sed -n '1,4p'
+        ## create stretches of 1's
+        st <- s.nlines -c(s.nlines[1],s.nlines[-length(s.nlines)])
+
+        if(sum(st==1)>=1){
+            v <- rle(unname(st)) ## rle returns an object with two components, lengths and values.         
+            w <- which(v$value==1) ## relevant entries from v$value
+            vl <- v$length ## to ease coding, I need to sum over elements of vl to get indexes for p.nlines/s.nlines
+            
+            if(w[1]==2) { ## 2 corresponds to the range of ones starting from the beginning, first element always 0
+                com <- paste(s.nlines[w[1]-1],p.nlines[sum(vl[1:w[1]])],  sep=",")
+            } else {
+                com <- c(paste(p.nlines[1:(sum(vl[1:(w[1]-1)])-1)], collapse="; "), paste(s.nlines[sum(vl[1:(w[1]-1)])],p.nlines[sum(vl[1:w[1]])], sep=","))
+                
+            }
+            if(length(w)>1){       
+                for(i in 2:length(w)){
+                    if(sum(vl[(w[i-1]+1):w[i]])==2){ ## the new stretch of 1's in w[i] starts one snp after the last stretch of ones
+                        com <- c(com,paste(s.nlines[sum(vl[1:(w[i]-1)])],p.nlines[sum(vl[1:w[i]])], sep=","))
+                    } else {
+                        
+                        com <- c(com, c(paste(p.nlines[(sum(vl[1:w[i-1]])+1):(sum(vl[1:w[i]-1])-1)], collapse="; "), paste(s.nlines[sum(vl[1:(w[i]-1)])],p.nlines[sum(vl[1:w[i]])], sep=",")))
+                    }
+                    
+                }             
+            }
+            ## I may need to add elements after last entry of w
+            if(sum(vl[1:w[length(w)]]) < length(p.nlines)) {           
+                i=length(w)
+                com <- c(com,paste(p.nlines[(sum(vl[1:w[i]])+1):sum(vl)], collapse="; "))             
+            }
+
+            haps <- paste0("zcat ", file2, " | sed -n '", paste(com, collapse= "; "), "' ")
+            
+        } else {              
+            
+            haps <- paste0("zcat ", file2, " | sed -n '", paste(p.nlines, collapse="; "), "' ") 
+
+        }
+        
+        rf <- fread(haps, header=F)  ## referene panel for snps in hap format
+        mat <- as.matrix(rf)
+        rownames(mat) <- names(nlines)
+        return(mat)
+    }
 }
+        
 
 
 #' Total gene and ASE counts, per fsnp, per individual
@@ -231,6 +283,179 @@ top.gene<- function(DT1,DT2,chr ){
     return(fn.p)
 }
 
+#' Recode GT from trecase scale (0,1,-1,2) to GUESSFM scale 0 M, 1 hom ref, 2 het, 3 hom alt
+#'
+#' This function allows you to recode GT for input in tag function from GUESSFM
+#' @param DT1 data table GT coded in trecase scale, rows SNPS, cols samples plus additionals
+#' @keywords recode GUESSFM
+#' @export
+#' @return Matrix with rows samples and cols SNPS
+#' rec.guess()
+
+rec.guess<- function(DT){
+    M <- t(as.matrix(DT[, grep("_GT", names(DT),value=T), with=F]))
+    ##recode
+    M[M==2] <- 3
+    M[abs(M)==1] <- 2
+    M[M==0] <- 1
+    M[is.na(M)] <- 0
+    M[M=="."] <- 0
+    colnames(M) <- DT$id
+    rownames(M) <- grep("_GT", names(DT),value=T)
+    M <- apply(M,2,as.numeric)
+    return(M)
+    
+}
+
+
+#' function for filtering input for stan
+#'
+#' This function allows you to test wether a rsnp has enough het inds with a certain number of ASE counts
+#' @param geno.exp data table for an element of output list tot.ase_counts
+#' @param ase ase cut-off default is 5 counts, trecase default 5
+#' @param n minimun number of individuals het for rsnp with counts >=ase, trease default 5
+#' @keywords filtering stan input
+#' @export
+#' @return data table with sample name, GT rsnp, total counts, n and m counts for each fSNP, same data table outputted as an element of tot.ase_counts
+#'
+#' filt.rsnp()
+
+filt.rsnp <- function(geno.exp,ase=5, n=5){
+   
+    n.col <- grep("\\.n",names(geno.exp), value=T)
+    m.col <- grep("\\.m",names(geno.exp), value=T)
+    m.counts <-  rowSums(geno.exp[,m.col,with=F])
+    # select ASE input when total ase counts are above threshold and 
+    A <- which(m.counts>=ase)
+    if(nrow(geno.exp[A,][abs(rsnp)==1,])<n){
+        return("Not enough individuals with ASE counts")
+    } else {
+        return(geno.exp)
+    }
+}
+
+#' quick association test  for filtering out rnsps as input for stan
+#'
+#' This function allows you to predict whether an rsnp is likely to be associated with gene expression
+#' @param geno.exp data table for an element of output list tot.ase_counts
+#' @param ase ase cut-off default is 5 counts, trecase default 5
+#' @param n minimun number of individuals het for rsnp with counts >=ase, trecase default 5
+#' @keywords filtering stan input
+#' @export
+#' @return vector with correlation of y and g and z.test for p
+#'
+#' q.rsnp()
+
+q.rsnp <- function(geno.exp,ase=5, n=5){
+   
+    n.col <- grep("\\.n",names(geno.exp), value=T)
+    m.col <- grep("\\.m",names(geno.exp), value=T)
+    m.counts <-  rowSums(geno.exp[,m.col,with=F])
+    # select ASE input when total ase counts are above threshold and 
+    A <- which(m.counts>=ase)
+    if(nrow(geno.exp[A,][abs(rsnp)==1,])<n){
+        return("Not enough individuals with ASE counts")
+    } else {
+        DT <- geno.exp[A,]
+        DT[,n:=rowSums(DT[,n.col,with=F])]
+        DT[, m:=m.counts[A]]
+        DT[, p:=n/m][rsnp==-1, p:=1-p]
+        DT[,g:=abs(rsnp)]
+        ## calculate z-statistic
+        if(sum(DT$g==1) >= (nrow(DT)-2)){ ## all or almost all hets, p.null=0.5
+            DT <- DT[g==1,]
+            zeta=(mean(DT$p)-0.5)/(sqrt(var(DT$p)/nrow(DT)))
+        } else {
+            DT[, het:=ifelse(g==1,"Yes","No")]
+            N=DT[,.N,by=het]
+            mean.p=DT[, mean(p), by=het]
+            var.p=DT[,var(p), by=het]
+            zeta <- diff(mean.p$V1)/sqrt(sum(var.p$V1/N$N))
+        }
+        cor.yg <- cor(abs(geno.exp$rsnp), geno.exp$y)
+        return(v=c(cor.yg=cor.yg, z.p=zeta))
+    }
+}
+
+
+
+#' function for getting p.ase from stan input
+#'
+#' This function allows you to compare the proportion of ase counts corrected by haplotype from the stan input for a snp-gene pair between hets and not hets and return the z.statistic
+#' @param l list with stan input, output from stan.neg.beta.prob.eff
+#' @keywords ase proportion stan input
+#' @export
+#' @return vector with z-statistic
+#'
+#' z.ase()
+
+z.ase <- function(l){
+    if(length(names(l))==4){## unname list, only the names for internal objects
+        tmp <- sapply(1:length(l$n), function(x) (l$n[[x]]/l$gm[x,m]) %*% l$p[[x]])
+        tmp[which(l$gm$g.ase==-1)] <-  1 - tmp[which(l$gm$g.ase==-1)] ## correct by hap
+        DT <- data.table(g=abs(l$gm[,g.ase]), p= tmp)
+    } else {
+        tmp <- sapply(1:length(l[[1]]$n), function(x) (l[[1]]$n[[x]]/l[[1]]$gm[x,m]) %*% l[[1]]$p[[x]])
+        tmp[which(l[[1]]$gm$g.ase==-1)] <-  1 - tmp[which(l[[1]]$gm$g.ase==-1)] ## correct by hap
+        DT <- data.table(g=abs(l[[1]]$gm[,g.ase]), p= tmp)
+    }
+    ## calculate z-statistic
+    if(sum(DT$g==1) >= (nrow(DT)-2)){ ## all or almost all hets, p.null=0.5
+        DT <- DT[g==1,]
+        zeta=(mean(DT$p)-0.5)/(sqrt(var(DT$p)/nrow(DT)))
+    } else {
+        DT[, het:=ifelse(g==1,"Yes","No")]
+        N=DT[,.N,by=het]
+        mean.p=DT[, mean(p), by=het]
+        var.p=DT[,var(p), by=het]
+        zeta <- diff(mean.p$V1)/sqrt(sum(var.p$V1/N$N))
+    }
+    
+    return(zeta)
+}
+
+#' function for getting p.ase from stan input fixed, input is a list with 14 elements
+#'
+#' This function allows you to compare the proportion of ase counts corrected by haplotype from the stan input for a snp-gene pair between hets and not hets and return the z.statistic when the input is fixed haplotype
+#' @param l list with stan input, output from fixhap.eff
+#' @keywords ase proportion stan input
+#' @export
+#' @return vector with z-statistic
+#'
+#' z.fix.ase()
+
+z.fix.ase <- function(l){
+    if(length(names(l))==14){## unname list, only the names for internal objects
+        tmp <- l$n/l$m
+        tmp[which(l$gase==-1)] <-  1 - tmp[which(l$gase==-1)] ## correct by hap
+        DT <- data.table(g=abs(l$gase), p= tmp)
+    } else {
+        tmp <- l[[1]]$n/l[[1]]$m
+        tmp[which(l[[1]]$gase==-1)] <-  1 - tmp[which(l[[1]]$gase==-1)] ## correct by hap
+        DT <- data.table(g=abs(l[[1]]$gase), p= tmp)
+    }
+    ## calculate z-statistic
+    if(sum(DT$g==1) >= (nrow(DT)-2)){ ## all or almost all hets, p.null=0.5
+        DT <- DT[g==1,]
+        zeta=(mean(DT$p)-0.5)/(sqrt(var(DT$p)/nrow(DT)))
+    } else {
+        DT[, het:=ifelse(g==1,"Yes","No")]
+        N=DT[,.N,by=het]
+        mean.p=DT[, mean(p), by=het]
+        var.p=DT[,var(p), by=het]
+        zeta <- diff(mean.p$V1)/sqrt(sum(var.p$V1/N$N))
+    }
+    
+    return(zeta)
+}
+
+
+
+
+
+
+
+                
 
 #' Run linear regression by lm to identify potential cis-qtl
 #'
