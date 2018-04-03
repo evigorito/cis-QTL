@@ -125,14 +125,74 @@ stan.input.neg.ase.p <- stan.input.neg.ase.prob(x=sim.hap[[1]],covar=1)
 
 expose_stan_functions('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan')
 
+## using built-in beta binomial
+expose_stan_functions('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
+
 expose_stan_functions('/home/ev250/Bayesian_inf/trecase/Scripts/negbinom.beta.ase.prob.phasing.priors.stan')
 
 
 test.eff <- negasepeff_log(Y=stan.in.prob.eff$Y, g=stan.in.prob.eff$g, gase=stan.in.prob.eff$gase, m=stan.in.prob.eff$m, n=stan.in.prob.eff$n, s=stan.in.prob.eff$s,v=stan.in.prob.eff$v,pH=stan.in.prob.eff$pH,cov=stan.in.prob.eff$cov,betas=6, bj=0.4,phi=1,theta=0.1)
 
+g=stan.in.prob.eff$g
+bj=0.4
+theta=0.1
+betas=6
+cov=stan.in.prob.eff$cov
+gase=stan.in.prob.eff$gase
+
+idx.g1 <- which(abs(g)==1)
+idx.g2 <- which(g==2)
+idx.gase1 <- which(gase==1)
+idx.gase.neg1 <- which(gase==-1)
+
+lmu <-  cov[,2:ncol(cov)]*betas
+lmu[idx.g1] <- lmu[idx.g1]  + log(1+exp(bj))-log(2)
+lmu[idx.g2] <- lmu[idx.g2] + bj
+p <- rep(0.5,length(gase))
+p[idx.gase1] <- exp(bj)/(1+exp(bj))
+p[idx.gase.neg1] <- 1-exp(bj)/(1+exp(bj))
+a=p/theta
+b=(1-p)/theta
+         
+
+test.eff2 <- negasepeff2_log(Y=stan.in.prob.eff$Y, g=stan.in.prob.eff$g, gase=stan.in.prob.eff$gase, m=stan.in.prob.eff$m, n=stan.in.prob.eff$n, s=stan.in.prob.eff$s,v=stan.in.prob.eff$v,pH=stan.in.prob.eff$pH,cov=stan.in.prob.eff$cov,lmu=lmu, a=a, b=b, bj=0.4,phi=1,theta=0.1)
+
 test <- negase_log(stan.input.neg.ase.p$v, stan.input.neg.ase.p$K,stan.input.neg.ase.p$s, stan.input.neg.ase.p$ncov, betas=6,bj=0.4,phi=1,theta=0.1)
 
-### both functions return same results ##
+### All functions return same results ## the most efficient is neg.beta.prob.phasing.priors.eff2.stan
+### run stan
+
+eff2.stan <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan', data=stan.in.prob.eff, pars=c("betas","bj","phi","theta"))
+
+###################### Add covariates #############
+
+stan.in.prob.eff.cov <- in.neg.beta.prob.eff(x=sim.hap[[2]], covar=mod.mat[1:nrow(sim.hap[[2]]$yg),"cov"])
+
+g=stan.in.prob.eff$g
+bj=0.4
+theta=0.1
+betas=c(6,0.1)
+cov=stan.in.prob.eff$cov
+gase=stan.in.prob.eff$gase
+
+idx.g1 <- which(abs(g)==1)
+idx.g2 <- which(g==2)
+idx.gase1 <- which(gase==1)
+idx.gase.neg1 <- which(gase==-1)
+
+lmu <-  cov[,2:ncol(cov)]*betas
+lmu[idx.g1] <- lmu[idx.g1]  + log(1+exp(bj))-log(2)
+lmu[idx.g2] <- lmu[idx.g2] + bj
+p <- rep(0.5,length(gase))
+p[idx.gase1] <- exp(bj)/(1+exp(bj))
+p[idx.gase.neg1] <- 1-exp(bj)/(1+exp(bj))
+a=p/theta
+b=(1-p)/theta
+
+test.eff2.cov <- negasepeff2_log(Y=stan.in.prob.eff$Y, g=stan.in.prob.eff$g, gase=stan.in.prob.eff$gase, m=stan.in.prob.eff$m, n=stan.in.prob.eff$n, s=stan.in.prob.eff$s,v=stan.in.prob.eff$v,pH=stan.in.prob.eff$pH,cov=stan.in.prob.eff$cov,lmu=lmu, a=a, b=b, bj=0.4,phi=1,theta=0.1)
+
+stan.test.eff2.cov <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan', data=stan.in.prob.eff.cov, pars=c("betas","bj","phi","theta"))
+
 
 ## run stan:
 neg.beta.p.eff.out <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan', data=stan.in.prob.eff ,pars=c("betas","bj","phi","theta")) 

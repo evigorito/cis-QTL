@@ -22,7 +22,7 @@ functions{
 	lmu = gNB[r]==2 ? lmu + bj : lmu;
       
 	probi=exp(neg_binomial_2_lpmf(Y[i] | exp(lmu), phi))*pNB[r] + probi;
-	//print("i= ",i,  ", probi = ", probi, ", lprob= ", lprob)
+
       }
       lprob=lprob+log(probi);
 	

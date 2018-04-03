@@ -113,3 +113,41 @@ vcf4rasqual /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE 22 22 ASE.allsamples.vcf.gz 
 
 ## done in /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/real_data/QTL_input/inputs.R
 
+################## Run model for chr22 ##########
+
+## Started in 'top.snp.set.22.R' for gene-snp associations based on Chris eqtl geuvadis data.
+## In this script I call others to run the top snp but also a snp in low LD to set rules to avoid running unecessary tests.
+
+## Expanding into chr22.R, in inputs.R I could make a list of genes to test based on chr and level of expression so I can then make an array variable that goes through that list to run eQTL.
+
+chr22.R
+Error in dyn.load(libLFile) : 
+  unable to load shared object '/tmp/RtmpvDL73J/file4ff67a20d.so':
+  `maximal number of DLLs reached...
+
+## options: remove libraries before running stan
+## remove dll stan files as I go along: https://github.com/stan-dev/rstan/issues/448
+
+dso_filename = mod@dso@dso_filename
+  loaded_dlls = getLoadedDLLs()
+
+dso_filename = model@dso@dso_filename
+  loaded_dlls = getLoadedDLLs()
+  if (dso_filename %in% names(loaded_dlls)) {
+    message("Unloading DLL for model dso ", dso_filename)
+    model.dll = loaded_dlls[[dso_filename]][['path']]
+    dyn.unload(model.dll)
+  } else {
+    message("No loaded DLL for model dso ", dso_filename)
+  }
+
+  loaded_dlls = getLoadedDLLs()
+  loaded_dlls = loaded_dlls[str_detect(names(loaded_dlls), '^file')]
+  loaded_dlls <- loaded_dlls[grep("^file", names(loaded_dlls),value=T)]
+  if (length(loaded_dlls) > 10) {
+    for (dll in head(loaded_dlls, -10)) {
+      message("Unloading DLL ", dll[['name']], ": ", dll[['path']])
+      dyn.unload(dll[['path']])
+    }
+  }
+  message("DLL Count = ", length(getLoadedDLLs()), ": [", str_c(names(loaded_dlls), collapse = ","), "]")

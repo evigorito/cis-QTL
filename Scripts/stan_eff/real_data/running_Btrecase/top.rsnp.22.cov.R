@@ -28,6 +28,8 @@ lm.genes <- fread("/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.top.
 
 counts.f <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt'  ## filtered reads per gene, mean >=10
 
+lib.s <- readRDS('/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds') ## library size from inputs.R, linear scale
+
 fsnps.22 <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt' ## fsnps for chr22
 
 file <- "/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/gene_data_longest.exons.txt" ## input with gene coords
@@ -117,7 +119,7 @@ if(nrow(counts.g) == 0){  ## if no counts, stop running
 
                 ## matrix for reference panel haps
                 
-                ref <- fhaps(file1=le.file,file2=h.file, snps=c(fsnps$id,rsnps$id))
+                ref <- fhaps(file1=le.file,file2=h.file, snps=unique(c(fsnps$id,rsnps$id)))
 
                 ## fsnps
                 rp.f <- ref[fsnps$id[fsnps$id %in% rownames(ref)],] ## selects fsnps in ref panel
@@ -188,14 +190,17 @@ if(nrow(counts.g) == 0){  ## if no counts, stop running
                     if(length(stan.in1[stan.in1 != "Not enough individuals with ASE counts"]) == 1){
 
                         ##saveRDS(stan.in1, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.',lm.genes[line,SNP.x],'.input.rds'))
-                        
-                        stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff(i, covar=1))
+
+                        ## select samples and standardise lib.s in log scale
+                        log.lib.s <- log(lib.s[samples])
+                        lib.s <- (log.lib.s-mean(log.lib.s))/sd(log.lib.s)
+                        stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff2(i, covar=lib.s))
 
                         ## fix haplotypes for comparison, standard trecase
 
                         ##fix.input1 <- lapply(stan.in1, fixhap.eff)
 
-                        stan.prob <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan', data=stan.in2[[1]])
+                        stan.prob <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan', data=stan.in2[[1]], pars=c("betas","bj","phi","theta"))
 
                         ##saveRDS(stan.prob, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.',lm.genes[line,SNP.x],'.prob.rds'))
 

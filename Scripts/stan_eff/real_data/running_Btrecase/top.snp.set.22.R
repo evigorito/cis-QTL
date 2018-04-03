@@ -1,5 +1,5 @@
-library(data.table)
-library(xtable)
+library(data.table, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(xtable, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
 
 source("/home/ev250/Genotyping_RNA_seq/Functions/name_vcf.R") # name txt files made from vcf files
 source('/home/ev250/Cincinatti/Functions/various.R')
@@ -9,6 +9,7 @@ source('/home/ev250/Bayesian_inf/trecase/Functions/real.data.R')
 source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
 
 source('/home/ev250/Bayesian_inf/trecase/Functions/stan.eff.R')
+
 
 ########## Use Chris's file with sig eqtl in whole GEUVADIS to search for sig cis-eqtl with Btrecase ###
 
@@ -161,15 +162,19 @@ comb[ , prob.rt:= sapply(lapply(rtime, `[[`, 2), function(i)  as.numeric(unlist(
 ## look at the number of fsnps run in each case
 
 f.N <- lapply(r3, function(i) system(paste("grep -e 'Effective number of fSNPs' ", i) , intern=TRUE))
-names(f.N) <- names(rtime)
-
+names(f.N) <-  gsub(".err","", gsub(".*_","", r3))
 f.N <- f.N[order(as.numeric(names(f.N)))]
 
 comb[, eff.fsnp:= unname(sapply(f.N, function(i)  as.numeric(gsub('\\"', "", unlist(strsplit(i, ":"))[2]))))]
 
+## add size of CIs
+
+s <- grep("CI", names(comb), value=T)
+
+comb[, paste0("s.",s):=lapply(s, function(i) sapply(strsplit(get(i),":"), function(j) abs(diff(as.numeric(j)))))]
 
 
-
+## check if the cols make sense
 
 comb.sub <- comb[, c(9:10,2:4, 13,5:7, 15,26,8,25), with=F]
 
@@ -178,20 +183,23 @@ setkey(comb.sub, prob.rt)
 names(comb.sub)[c(2,6)] <- c("lm","pval")
 comb.sub[, lm:=round(lm,3)][,pval:=round(pval,3)]
 
-
-## tables of full model
-
-comb.sub <- comb.sub[order(abs(prob.bj), decreasing=T)]
-x=xtable(head(comb.sub[,.(lm, neg.bj, prob.bj, fix.bj,eff.fsnp, prob.rt)]))
-x1=xtable(head(comb.sub[,2:9]))
-
-print(x1, include.rownames=F, booktabs = TRUE, size ="scriptsize")
-
 ## add size of CIs
 
 s <- grep("CI", names(comb.sub), value=T)
 
 comb.sub[, paste0("s.",s):=lapply(s, function(i) sapply(strsplit(get(i),":"), function(j) abs(diff(as.numeric(j)))))]
+## tables of full model
+## correct effect size lm to same scale as btrecase
+
+comb.sub[, lm.corr:= log(exp(lm)*2-1)]
+comb.sub <- comb.sub[order(abs(prob.bj), decreasing=T)]
+##comb.sub <- comb.sub[order(prob.bj, decreasing=T)]
+x=xtable(head(comb.sub[,.(lm.corr, neg.bj, prob.bj, fix.bj,eff.fsnp, prob.rt)]))
+x1=xtable(head(comb.sub[,c('lm.corr', 'neg.bj','prob.bj', 'fix.bj','pval', 'neg_CI','prob_CI','fix_CI' ), with=F]))
+
+print(x1, include.rownames=F, booktabs = TRUE, size ="scriptsize")
+
+
 
 
 ## make a DF with summaries
@@ -247,7 +255,7 @@ inp <- lapply(in.f, readRDS)
 
 in.fix <- lapply(1:length(inp), function(i) fixhap.eff(inp[[i]][[1]]))
 
-## collect info, p corrected by genotype
+## collect info, p corrected by haplotype
 
 mpg <- lapply(in.fix, function(i) data.table(m=i$m,g=i$gase,p=ifelse(i$gase==-1,(i$m-i$n)/i$m,i$n/i$m)))
 names(mpg) <- sapply(seq_along(inp), function(i) names(inp[[i]]))
@@ -255,9 +263,31 @@ names(mpg) <- sapply(seq_along(inp), function(i) names(inp[[i]]))
 mpg.dt <-rbindlist(mpg,idcol="SNP.x")
 mpg.dt[, het:=ifelse(abs(g)==1,"Yes","No")]
 
+
 ggplot(mpg.dt, aes(m, p, color=het)) + geom_point() + geom_hline(aes(yintercept=0.5))
 
 mpg.dt[,Mean.p:=mean(p), by=SNP.x][,Var.p:=var(p), by=SNP.x][, Mean.m:=mean(m), by=SNP.x]
+
+compare.p <- mpg.dt[,mean(p), by=.(het,SNP.x)]
+
+
+17:  No     22287964:T:C 0.5015238
+18: Yes     22287964:T:C 0.5018233
+19:  No     19132325:A:G 0.5354004
+20: Yes     19132325:A:G 0.5929978
+21: Yes     38202399:T:C 0.5438639
+22:  No     38202399:T:C 0.4394520
+23: Yes     38424607:A:G 0.6282778
+24:  No     38424607:A:G 0.4923745
+25: Yes     42338351:G:A 0.4932599
+26: Yes     32777206:C:G 0.4771751
+27:  No     32777206:C:G 0.5059207
+28: Yes     39121252:A:G 0.4603954
+29:  No     39121252:A:G 0.5112715
+30:  No     32888622:A:G 0.4628132
+31: Yes     32888622:A:G 0.4696853
+32:  No     42945888:T:C 0.4858395
+33: Yes     42945888:T:C 0.4925863
 
 ## merge comb with mean and sd of p plus m counts
 ## var p is not explaining as much as CI size.
@@ -277,11 +307,130 @@ cor(comb2$prob.rt,comb2$Mean.m)
 
 ###################################################################################################################  Learning rules to avoid running null associations ####
 
+## For each GEne-SNP pair select a snp in no LD to get null results. Coded in top.rsnp.noLD.22.R
+
 ## plot abs(bj) vs cor(total counts,GT rsnp)^2
 
-## start with input with known GT
+## start with input with known GT, select the 50 gene-snp pairs I have run plus another set of snps in no LD to account for null associations
 
-cor.y.g <- data.table(sapply(in.fix, function(i) cor(i$Y,abs(i$g))^2)
+cor.y.g <- data.table(SNP.x=sapply(inp, names), r.yg=sapply(in.fix, function(i) cor(i$Y,abs(i$g))))
+
+comb3 <- merge(comb,cor.y.g, by="SNP.x")
+
+## save comb3
+
+write.table(comb3, '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/50genes.ase.summary.txt', row.names=F)
+
+comb3 <- fread('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/50genes.ase.summary.txt')
+
+## plot
+
+ggplot(comb3, aes(abs(r.yg),abs(prob.bj))) + geom_point() +  geom_abline(linetype="dashed") + geom_errorbar(aes(ymin=abs(prob.bj) - s.prob_CI/2, ymax=abs(prob.bj) + s.prob_CI/2)) + geom_hline(yintercept = 0)
+
+## adding z-statistic for mean n/m test
+
+z.p <- sapply(inp,z.ase)
+
+## order comb3 based on inp to add z.p
+ord <- sapply(1:length(inp), function(i) grep(names(inp[[i]]),comb3$gene_snp, value=T))
+comb3 <- comb3[match(ord,gene_snp),]
+comb3[, z.p:=z.p]
+
+########## REading data with snp in low LD to top snp
+
+## inputs
+inp.lo <- list.files('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22', pattern=":[A-Z]+.lowLD.input.rds",full.names=T)
+
+inp.LD <- lapply(inp.lo,readRDS)
+
+## get z-stat for mean of n/m by het (no het) for each gene
+z.lowLD <- sapply(inp.LD, z.ase)
+
+## get correlation between ind
+cor.y.g.lowLD <- sapply(inp.LD, function(i) cor(i$yg$y, abs(i$yg$rsnp)))
+
+## get output (bj)
+
+bj.lowLD <- lapply(list.files('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22', pattern=":[A-Z]+.snp.low.LD.top.prob.rds",full.names=T), function(i) summary(readRDS(i))$summary)
+
+bj.lLD <- stan.param.sum(bj.lowLD)
+
+bj.lLD[,cor:=cor.y.g.lowLD][, z.stat:=z.lowLD]
+
+## add size of CIs
+
+s <- grep("CI", names(bj.lLD), value=T)
+
+bj.lLD[, paste0("s.",s):=lapply(s, function(i) sapply(strsplit(get(i),":"), function(j) abs(diff(as.numeric(j)))))]
+
+
+############# Combine top snp with low snp
+
+q.test <- rbindlist(list(comb3[,.(prob.bj,prob_CI, r.yg,z.p,s.prob_CI)], bj.lLD))
+
+q.test[, CI.null:="NO"][(prob.bj - s.prob_CI/2)<0 & (prob.bj + s.prob_CI/2) > 0, CI.null:="Yes"]
+
+g.cor <- ggplot(q.test, aes(abs(r.yg),abs(prob.bj))) + geom_point(aes(color=CI.null), shape=1) +  stat_smooth(method = "lm", linetype = "dashed", se=FALSE)  + geom_hline(yintercept = 0) + ggtitle("cis-effect vs cor(counts/genotype)")
+
+##+ geom_errorbar(aes(ymin=abs(prob.bj) - s.prob_CI/2, ymax=abs(prob.bj) + s.prob_CI/2)) 
+
+g.comb <- ggplot(q.test, aes(abs(z.p*r.yg),abs(prob.bj))) + geom_point(aes(color=CI.null), shape=1)  + geom_hline(yintercept = 0) + ggtitle("Analysis of 98 Gene cis-SNP associations") + ylab(expression(paste("|", italic(b[AI]), "|" ))) + xlab("|corr(c,g) * z.(n/m)|") +  stat_smooth(method = "lm", linetype = "dashed", se=FALSE)
+   
+g.p <- ggplot(q.test, aes(abs(z.p), abs(prob.bj))) + geom_point(aes(color=CI.null), shape=1) + geom_hline(yintercept = 0)  + stat_smooth(method = "lm", linetype = "dashed", se=FALSE) + ggtitle("cis-effect vs z.stat(proportion)")
+
+plot_grid(g.cor,g.p,g.comb, ncol=1, align="v")
+
+q.test[, sort(abs(r.yg*z.p)), by=CI.null]
+
+q.test[, cor.p:=abs(r.yg*z.p)]
+
+ggplot(q.test, aes(abs(z.p),abs(r.yg))) + geom_point(aes(color=CI.null), shape=1) + geom_hline(yintercept=0.1) +geom_vline(xintercept=1.5)
+
+############# Simplify calculation, use fixed proportion, only considering most likely haplotype to avoid using reference panel to compute p(H) as it takes long time to extract data. For quick test is better to avoid it.
+
+in.fix <- lapply(1:length(inp), function(i) fixhap.eff(inp[[i]][[1]]))
+z.p.fix <- sapply(in.fix, z.fix.ase)
+
+lLD.fix <- lapply(inp.LD, fixhap.eff)
+z.p.low.fix <- sapply(lLD.fix, z.fix.ase)
+
+cor.low.fix <- sapply(lLD.fix, function(i) cor(i$Y,abs(i$g)))
+
+## q.test is in order to directly add cols
+
+q.test[, z.p.fix:=c(z.p.fix, z.p.low.fix)]
+
+p2 <- ggplot(q.test, aes(abs(z.p.fix),abs(r.yg))) + geom_point(aes(color=CI.null), shape=1) + geom_rect(mapping=aes(xmin=-Inf,xmax=2,ymin=-Inf,ymax=0.2), size=0.1, fill="grey96", alpha=0.02)  + ylab("|corr(c,g)|") + xlab("|z.(n/m)|")
+
+plot_grid(g.comb,p2, ncol=1)
+
+ggsave('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/quick_test.pdf')
+
+## very similar results
+
+
+########################################################################################################
+######Testing pipeline including grouping snps and quick test for one gene in chr22 ##########
+
+## code in chr.22, run with line=22
+
+## get summary of run snps
+
+l22 <- readRDS(paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',"ENSG00000184164",'.','.chr22.prob.rds'))
+
+## get snps which 95%CI for jb does not contain the null bj.null.CI==0
+l22.sum <- stan.no.null(a=l22,y="bj",z=0)
+l22.no.null <- l22.sum[bj.null.CI==0]
+
+## 90 groups with sig cis-SNPs
+
+
+################################################################################################
+## Running Btrecase with built-in beta binomial and covariates
+## stan code: /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan
+
+## tested with few lines in top.rsnp.22.cov.R and running at similar speed as w/o library size after standardizing library size.
+
 
 
 #####################################################################################################
@@ -392,9 +541,11 @@ comb.nGT.sub <- comb.nGT[,.(noGT.bj,ase.prob.bj,prob.bj,noGT_CI,ase.prob_CI,prob
 
 ## print(xtable(comb.nGT.sub), include.rownames=F, booktabs = TRUE, size ="scriptsize")
 
-## wrap.plot(stan.mat$noGT,stan.mat$ase.prob,sx="noGT", sy="GT", t="noGT vs GT", xl="noGT", yl="GT") + geom_point(aes(size=comb.nGT$eff.fsnp)) + geom_abline(linetype="dotted")
+wrap.plot(stan.mat$noGT,stan.mat$ase.prob,sx="noGT", sy="GT", t=expression(paste(italic(b[AI]), " with unknown cis-SNP genotype")), xl="noGT", yl="GT") + geom_point(aes(size=comb.nGT$eff.fsnp)) + geom_abline(linetype="dotted") + scale_size_continuous(name="# ge-SNPs")
+
+ggsave('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/noGT.pdf')
 
 
+######################  Improve pipeline when running with noGT #######################
 
-
-
+## coded in chr22.noGT.R

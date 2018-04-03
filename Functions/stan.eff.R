@@ -1,12 +1,12 @@
 ## Functions to run stan scripts more efficiently
-library(data.table)
+library(data.table, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
 library(MASS)
-library(emdbook) #simulate beta binomial
-library('Matrix');
-library('iterpc');
-library(mvtnorm)
-library(gridExtra)
-library(ggplot2)
+library(emdbook, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3") #simulate beta binomial
+##library('Matrix', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
+##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
+library(mvtnorm, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(gridExtra, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(ggplot2, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4")
 
 
 source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
@@ -194,12 +194,33 @@ stan.rem <- function(l){
     return(l)
 }
 
+#' sub-function to deal with covariates when preparing input for stan 
+#'
+#' This function allows you to deal with covariates for stan input
+#' @param N, number of individuals with covariate information
+#' @param covar matrix or numeric with covariates, rows individuals, cols covariates. Same order as in x, do not include col of ones for intercept. Defaults to intercept only
+#' @keywords stan input covariates
+#' @export
+#' @return matrix with covariates compatible with stan: two cols with ones plus covs, first col will be ignored by stan but allows to enter data as matrix avoidind vector when no covs
+#' stan.cov()
+
+stan.cov <- function(N, covar=1){
+
+    cov <- matrix(1,nrow=N, ncol=2) # I need at least 2 cols so stan will recognise covar as a matrix, which helps with downstream calculations in stan. first extra column will be ignored
+    if((is.numeric(covar) & length(covar)==N) | is.matrix(covar)){
+        cov <- cbind(cov, covar) ## add covariates   
+    }
+    rownames(cov) <- NULL
+    return(cov)
+}
+
+
 
 #' prepare input for stan neg.beta.prob.priors.eff.phasing.stan
 #'
 #' This function allows you to prepare inputs for negbinombeta.ase.prob.phasing.stan
 #' @param x element from output list from stan.neg.beta.prob.eff
-#' @param covar DT with covariates, rows individuals, cols covariates. Same order as in x. Defaults to intercept only
+#' @param covar matrix or numeric with covariates, rows individuals, cols covariates. Same order as in x, do not include col of ones for intercept. Defaults to intercept only
 #' @keywords stan input trecase haplotype probabilities 
 #' @export
 #' @return list to input to stan neg.beta.ase.prob.priors.eff.phasing.stan
@@ -208,13 +229,7 @@ stan.rem <- function(l){
 in.neg.beta.prob.eff <- function(x,covar=1){
     
     N <- nrow(x[[1]]) # number of individuals
-    if(covar==1){
-        cov <- data.table(covar.1=rep(1, N), covar.2=rep(1,N)) # I need at least 2 cols so stan will recognise covar as a matrix, which helps with downstream calculations in stan.
-     
-    } else { #first extra column will be ignored
-        cov <- cbind(rep(1, N), covar)
-    }
-    
+    cov <- stan.cov(N,covar)
     # n. counts    
     n.v <- do.call(c,unname(x$n))
     s <- unname(sapply(x$n,length))
@@ -223,9 +238,46 @@ in.neg.beta.prob.eff <- function(x,covar=1){
     p.v <- do.call(c,x$p)
     # v
     v <- 0: max(x$gm$m)
-    LL=list(N=N, A=nrow(x$gm), L=L, K=ncol(cov)-1, M=length(v), Y=x$yg$y, g=x$yg$rsnp, gase= x$gm$g.ase, m=x$gm$m, n=n.v, pH=p.v, s=s, v=v, cov=as.matrix(cov))
+    LL=list(N=N, A=nrow(x$gm), L=L, K=ncol(cov)-1, M=length(v), Y=x$yg$y, g=x$yg$rsnp, gase= x$gm$g.ase, m=x$gm$m, n=n.v, pH=p.v, s=s, v=v, cov=cov)
     return(LL)
 }
+
+
+#' prepare input for stan neg.beta.prob.priors.eff2.stan
+#'
+#' This function allows you to prepare inputs for neg.beta.prob.phasing.priors.eff.test.stan
+#' @param x element from output list from stan.neg.beta.prob.eff
+#' @param covar matrix or numeric with covariates, rows individuals, cols covariates. Same order as in x, do not include col of ones for intercept. Defaults to intercept only
+#' @keywords stan input trecase haplotype probabilities 
+#' @export
+#' @return list to input to stan neg.beta.ase.prob.priors.eff2.stan
+#' in.neg.beta.prob.eff2()
+
+in.neg.beta.prob.eff2 <- function(x,covar=1){
+    
+    N <- nrow(x[[1]]) # number of individuals
+    cov <- stan.cov(N,covar)
+    ## n. counts    
+    n.v <- do.call(c,unname(x$n))
+    s <- unname(sapply(x$n,length))
+    L <- sum(s)
+    ## p(H)
+    p.v <- do.call(c,x$p)
+    ## indexes
+    ## idxg1 <- which(abs(x$yg$rsnp)==1)
+    ## idxg2 <- which(x$yg$rsnp==2)
+    ## idxgase1 <- which(x$gm$g.ase==1)
+    ## idxgasen1 <- which(x$gm$g.ase==-1)
+    ## idxgasehom <- which(x$gm$g.ase==0 |x$gm$g.ase==2)
+    
+    LL=list(N=N, A=nrow(x$gm), L=L, K=ncol(cov)-1, Y=x$yg$y, g=x$yg$rsnp, gase= x$gm$g.ase, m=x$gm$m, n=n.v, pH=p.v, s=s, cov=cov)
+    
+    return(LL)
+}
+
+
+
+
 
 #' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: total and ase expression allowing subgroups within ASE
 #'
@@ -741,7 +793,7 @@ sel.ind.no.gt <- function(M,l,m,ase,n){
 #'
 #' This function allows you to prepare inputs for stan neg.beta.noGT.rsnp.priors.eff.stan
 #' @param x output list from stan.full.no.gt
-#' @param covar DT with covariates, rows individuals, cols covariates. Same order as in x. Defaults to intercept only
+#' @param covar matrix or numeric with covariates, rows individuals, cols covariates. Same order as in x, do not include col of ones for intercept. Defaults to intercept only
 #' @keywords stan input trecase no genotype rsnp
 #' @export
 #' @return list to input to neg.beta.noGT.rsnp.priors.eff.stan
@@ -750,8 +802,8 @@ sel.ind.no.gt <- function(M,l,m,ase,n){
 in.neg.beta.noGT.eff <- function(x,covar=1){
     
     N <- length(x$NB$counts) # number of individuals
-    if(covar==1){
-        cov <- data.table(covar.1=rep(1, N), covar.2=rep(1,N)) # I need at least 2 cols so stan will recognise covar as a matrix, which helps with downstream calculations in stan.
+    if(length(covar)==1){
+        cov <- matrix(1,nrow=N, ncol=2) # I need at least 2 cols so stan will recognise covar as a matrix, which helps with downstream calculations in stan.
      
     } else { #first extra column will be ignored
         cov <- cbind(rep(1, N), covar)
@@ -776,7 +828,7 @@ in.neg.beta.noGT.eff <- function(x,covar=1){
     gase <- unname(do.call(c,unname(x$ase$g)))
     # v
     v <- 0: max(x$ase$m)
-    LL=list(N=N, G=sum(s.NB), L=L, K=ncol(cov)-1, M=length(v), Y=unlist(x$NB$counts),sNB=s.NB, gNB=g.NB, pNB=p.NB, gase= gase, m=x$ase$m, n=n.v, pH=p.v, s=s, v=v, cov=as.matrix(cov))
+    LL=list(N=N, G=sum(s.NB), L=L, K=ncol(cov)-1, M=length(v), Y=unlist(x$NB$counts),sNB=s.NB, gNB=g.NB, pNB=p.NB, gase= gase, m=x$ase$m, n=n.v, pH=p.v, s=s, v=v, cov=cov)
     return(LL)
 }
 

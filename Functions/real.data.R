@@ -129,19 +129,18 @@ cl_coord<- function(file,chr,gene,cw=500000){
 #' fhaps()
 
 fhaps<- function(file1, file2, snps){
-    ## get line number for snp from legend file
-    ##snp.st <- paste0("/",snps)
-    ##sed.mult <- paste(snp.st, collapse="/= ;") ## quicker but I loose track of snps if some arent on ref panel
-    
-    line <- lapply(1:length(snps), function(i) paste0("zcat ", file1, " | sed -n  '/", snps[i], "/='"))  #sed a little bit quicker than awk and grep
-    
-    nlines <- lapply(line, function(i) as.numeric(system(i, intern=TRUE))) ## slow but need to kepp track of snps in case some are not in reference panel 
-    names(nlines) <- snps
-    
-    ## sort before reading
-    nlines <- sort(unlist(nlines))
 
-    if(length(nlines)==0){
+    snps <- unique(snps) ## remove duplicate entries
+    ## get line number for snp from legend file
+    
+    l.snps <- paste0("zcat ", file1, " | sed -n '", paste0("/",snps, "/{=;p}", collapse=";"), "'")# | sed '{N;s/\n/ /}'") ## line number first line, snp info second line to keep track of snps if some arent on ref panel
+    
+    l.s <- system(l.snps, intern=TRUE)
+
+    n.lines <- unlist(as.numeric(l.s[1:length(l.s) %%2 ==1]))
+    names(n.lines) <- unname(sapply(sapply(strsplit(l.s[1:length(l.s) %%2 ==0], split=" ") , `[[`,1) , function(i) sub(".*?:(.+)","\\1",i)))
+
+    if(length(n.lines)==0){
         return("no snps in reference panel")
 
     } else {
@@ -150,8 +149,8 @@ fhaps<- function(file1, file2, snps){
         ## get haplotypes for fsnps in ref panel, extract from hap.gz file
         ## first line in legend file is headings, need to substract 1 to match hap.gz file
         
-        p.nlines <- paste0(nlines-1, "p")
-        s.nlines <- nlines-1
+        p.nlines <- paste0(n.lines-1, "p")
+        s.nlines <- n.lines-1
 
         ## find stretches of sequencial lines to improve running time sed -n '1,4p'
         ## create stretches of 1's
@@ -170,7 +169,11 @@ fhaps<- function(file1, file2, snps){
             }
             if(length(w)>1){       
                 for(i in 2:length(w)){
-                    if(sum(vl[(w[i-1]+1):w[i]])==2){ ## the new stretch of 1's in w[i] starts one snp after the last stretch of ones
+                    if(sum(vl[1:w[i-1]])+vl[w[i]] +1 == sum(vl[1:w[i]])){## the new stretch of 1's starts inmediately after the last stretch
+                        com <- c(com, paste(s.nlines[sum(vl[1:(w[i-1]+1)])],p.nlines[sum(vl[1:w[i]])], sep=","))
+                    }
+                    
+                    else if(sum(vl[(w[i-1]+1):w[i]])==2){ ## the new stretch of 1's in w[i] starts one snp after the last stretch of ones
                         com <- c(com,paste(s.nlines[sum(vl[1:(w[i]-1)])],p.nlines[sum(vl[1:w[i]])], sep=","))
                     } else {
                         
@@ -195,7 +198,52 @@ fhaps<- function(file1, file2, snps){
         
         rf <- fread(haps, header=F)  ## referene panel for snps in hap format
         mat <- as.matrix(rf)
-        rownames(mat) <- names(nlines)
+        rownames(mat) <- names(n.lines)
+        return(mat)
+    }
+}
+        
+#' Extract haps from hap file for the whole cis-window (range)
+#'
+#' This function allows you extract haplotypes for a range of snps
+#' @param file1 full path to file to legend.gz file
+#' @param file2 full path to hap.gz file
+#' @param cw vector start and end position of snps to extract within the range
+#' @param population ethnicity to set a cut-off for maf: AFR AMR EAS EUR SAS ALL
+#' @param maf cut-off for maf
+#' @keywords haplotypes reference panel range snps
+#' @export
+#' @return matrix with haplotypes as in hap format (each col one hap), rownames are snp id
+#' haps.range()
+
+haps.range<- function(file1, file2, cw,population="EUR", maf=0.01){
+
+    eth <- 6:11 ## field number in legend file for ethniticy
+    names(eth) <- c("AFR", "AMR", "EAS",  "EUR", "SAS", "ALL")
+    
+    ## get snp info for range including line number, from legend file
+    snp.i <- system(paste0("zcat ", file1, " | awk '{if ($2 >= ", cw[1], "&& $2 <= " ,cw[2], ") {print NR \" \" $2\":\"$3 \":\" $4 \" \" $",unname(eth[names(eth)==population]),"} }'"), intern=TRUE)  ## second field in legend file is POS,then ref then alt allele
+
+    if(length(snp.i)==0){
+        return("no snps in reference panel")
+
+    } else {
+        
+    
+        ## format snp.i as DT
+
+        DT <- as.data.table(lapply(1:3, function(i) lapply(strsplit(snp.i, split=" ") , `[[`,i)))
+        names(DT) <- c("line","snp","maf")
+        DT[,line:=as.numeric(line)-1]  ## first line in legend file is headings, need to substract 1 to match hap.gz file
+    
+        haps <- paste0("zcat ", file2, " | sed -n '", DT$line[1], ",", DT$line[nrow(DT)], "p' ")
+        
+        rf <- fread(haps, header=F)  ## referene panel for snps in hap format
+        ## remove snps below maf cut-off
+        keep <- which(DT$maf>=maf)
+        rf <- rf[keep,]
+        mat <- as.matrix(rf)
+        rownames(mat) <- DT$snp[keep]
         return(mat)
     }
 }
@@ -507,7 +555,34 @@ sum.fn= function (x){
   }
 
 
+#' get SNPs with 95% CI for a param does not contain the null, to filter tag snps to further analyse
+#'
+#' This function allows you to select stan summaries with 95%CI not containing the null for a parameter from a list of stan summaries
+#' @param a list of stan summaries, named with snp or no name
+#' @param y name of parameter to extract
+#' @param z value for the null hypothesis
+#' @keywords non-null credible intervals
+#' @export
+#' @return DT with mean effect size, min, max, CI and  whether the null is within the CI
+#' stan.no.null()
+
+stan.no.null <- function(a,y="bj", z=0){
+    cis.x <- stan.to.plot(a,y=y)
+    if(!is.null(names(a))){
+        cis.x[, SNP:=names(a)]
+        }
+    ## add whether the CI contains the null hypothesis, 
+    cis.x[,bj.null.CI:=0][z>get(names(cis.x)[2]) & z<get(names(cis.x)[3]), bj.null.CI:=1]
+    return(cis.x)
+}
+
+
+
+
+
 ############ Functions for working with unknown rSNP GT
+
+
 
 #' Get haps of fsnp plus any rsnp per sample
 #' 
@@ -532,6 +607,6 @@ hap_sam.f <- function(x){
     
 
     
-    
+
     
     

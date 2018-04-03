@@ -40,6 +40,7 @@ functions{
 	   y=sum(log(v[1:n[r]]*theta + p));
 	   z=sum(log(v[1:(m[i]-n[r])]*theta+1-p));
 	   //print("x=", x, " y=" , y, " z=",z);
+	   //print("i= ", i, "r= ", r, "bprobi= ", bprobi);
 	   bprobi=exp(lchoose(m[i],n[r]) + y +z -x)*pH[r] + bprobi; 
 	   
 	     } 

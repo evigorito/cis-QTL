@@ -1,12 +1,12 @@
-library(data.table)
-library(cowplot)
+library(data.table, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(cowplot, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
 library(MASS)
-library(emdbook) #simulate beta binomial
-library('Matrix');
-library('iterpc');
-library(mvtnorm)
-library(gridExtra)
-library(ggplot2)
+library(emdbook, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3") #simulate beta binomial
+##library('Matrix')#, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
+##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
+library(mvtnorm, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(gridExtra, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(ggplot2, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4")
 
 #source('/home/ev250/Bayesian_inf/trecase/Functions/stan.eff.R')
 
@@ -974,10 +974,10 @@ change.p.sim <- function(x,p, covar=1){
 #'
 #' This function allows you to run many simulations from a list of stan inputs
 #' @param x file and path to stan code
-#' @param y list of stan input per individual
+#' @param y list of stan input per simulation
 #' @keywords stan multiple simulations 
 #' @export
-#' @return list to input to stan negbinombeta.ase.prob.phasing.stan
+#' @return list of summary stan output
 #' stan.many.sim()
 
 stan.many.sim <- function(x,y){
