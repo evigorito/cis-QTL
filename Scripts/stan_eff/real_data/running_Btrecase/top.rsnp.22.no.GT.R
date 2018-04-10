@@ -41,6 +41,7 @@ h.file <- '/scratch/wallace/1000GP_Phase3/1000GP_Phase3_chr22.hap.gz' ## ref pan
 
 #### select gene
 
+## line =22
 gene <- lm.genes[line,gene_id]
 
 ### Extract inputs for gene

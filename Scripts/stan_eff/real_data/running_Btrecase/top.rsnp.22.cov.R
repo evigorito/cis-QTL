@@ -28,7 +28,7 @@ lm.genes <- fread("/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.top.
 
 counts.f <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt'  ## filtered reads per gene, mean >=10
 
-lib.s <- readRDS('/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds') ## library size from inputs.R, linear scale
+lib.s <- readRDS('/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds') ## library size from inputs.R, log scale
 
 fsnps.22 <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt' ## fsnps for chr22
 
@@ -192,8 +192,8 @@ if(nrow(counts.g) == 0){  ## if no counts, stop running
                         ##saveRDS(stan.in1, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.',lm.genes[line,SNP.x],'.input.rds'))
 
                         ## select samples and standardise lib.s in log scale
-                        log.lib.s <- log(lib.s[samples])
-                        lib.s <- (log.lib.s-mean(log.lib.s))/sd(log.lib.s)
+                        lib.s <- lib.s[samples,]
+                        lib.s <- scale(lib.s, center = TRUE, scale = TRUE)
                         stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff2(i, covar=lib.s))
 
                         ## fix haplotypes for comparison, standard trecase

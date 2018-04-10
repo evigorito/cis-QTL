@@ -48,17 +48,39 @@ counts.f <- counts[which(rowMeans(counts[, 2:ncol(counts), with=F])>=f),]
 write.table(counts.f, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt', row.names=F)
 
 ##########################################################################################################
-## Calculate library size: s
+## Calculate library size: save as matrix in log scale
 
-lib_size= colSums(as.matrix(counts[,2:ncol(counts),with=F]))
-##save vector
+lib_size= log(colSums(as.matrix(counts[,2:ncol(counts),with=F])))
+##save as matrix
+lib_size <- matrix(lib_size, ncol=1, dimnames=list(names(counts)[2:ncol(counts)], "lib.s"))
 saveRDS(lib_size, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds')
+
+
+## calculate prior for library size: prepare matrix with cols: ind,counts(per gene, all genes),lib.size(entred and standardised).
+
+lib.sz.sc <- scale(lib_size)
+## counts.f
+lib.sz.sc.ind <- lib.sz.sc[rep(1:nrow(lib.sz.sc), rep(nrow(counts.f), nrow(lib.sz.sc))),]
+
+counts.long <- melt(counts.f, id.vars="gene_id", measure.vars=names(counts)[2:ncol(counts)])
+counts.long[,log.lib.size:=lib.sz.sc.ind]
+counts.long[, log.counts:=log(value)]
+
+## linear model: not able to run with more than 1000 samples
+
+fit <- lm(log.counts ~ log.lib.size, data=counts.long)$summary 
+##Error in lm.fit(x, y, offset = offset, singular.ok = singular.ok, ...) : 
+##  NA/NaN/Inf in 'y'
+rows <- sample(1:nrow(counts.long),1000)
+plot(y=counts.long$log.counts[rows], x=counts.long$log.lib.size[rows])
+fit <- summary(lm(log.counts ~ log.lib.size, data=counts.long[rows,]))$coefficients
 
 
 #################################################################
 ## select fsnps per gene: get exon info for each gene from biomart
 
 ## 1) get exon bounderies for each gene, take the longest exon only
+fit
 mart <-useMart(biomart="ENSEMBL_MART_ENSEMBL", host="grch37.ensembl.org", path="/biomart/martservice" ,dataset="hsapiens_gene_ensembl")
 
 exons <- data.table(getBM(attributes=c("ensembl_gene_id", "chromosome_name","strand","exon_chrom_start","exon_chrom_end"), filters=c("ensembl_gene_id"), values=counts$gene_id, mart=mart))

@@ -38,6 +38,8 @@ lm.genes <- fread("/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.top.
 
 counts.f <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt'  ## filtered reads per gene, mean >=10
 
+lib.s <- readRDS('/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds') ## library size from inputs.R, log scale
+
 fsnps.22 <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt' ## fsnps for chr22
 
 file <- "/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/gene_data_longest.exons.txt" ## input with gene coords
@@ -96,7 +98,7 @@ samples <- gsub("_GT", "", grep("_GT", names(rec.rs), value=T))
 
 re.guess <- rec.guess(DT=rec.rs)
 x <- as(re.guess-1, "SnpMatrix")
-rtag <- tag(X=x) ## defaults tags at 0.99
+rtag <- tag(X=x,tag.threshold=0.9) ## defaults tags at 0.99
 
 ## restrict rsnp to tag snps
 rec.rs <- rec.rs[id %in% unique(tags(rtag)),]
@@ -188,7 +190,7 @@ if(nrow(rec.rs)==0){
             }
             ## calculate P(H|G) ref panel for each rsnp
             
-            rp.hap.pairs <- lapply(rp, p.hap.pair) ## slow
+            rp.hap.pairs <- lapply(rp, p.hap.pair) 
 
             ## prepare input for stan
 
@@ -207,34 +209,17 @@ if(nrow(rec.rs)==0){
             stan.in1 <- stan.in1[stan.in1 != "Not enough individuals with ASE counts"]
             if(length(stan.in1) >= 1){
                                 
-                stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff(i, covar=1))
+                stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff2(i, covar=1))
 
-                mod <- stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan')
-                stan.prob <- list()
-                for(i in 1:length(stan.in2)){ ## loop to allow removing unnecessary dlls, when they reach 100 R gives error
-                    stan.prob[[i]]  <- sampling(mod,data=stan.in2[[i]])
-                    dso_filename = mod@dso@dso_filename
-                    loaded_dlls = getLoadedDLLs()
-                    if (dso_filename %in% names(loaded_dlls)) {
-                        ##message("Unloading DLL for model dso ", dso_filename)
-                        model.dll = loaded_dlls[[dso_filename]][['path']]
-                        dyn.unload(model.dll)
-                    } else {
-                        ##message("No loaded DLL for model dso ", dso_filename)
-                    }
-                    
-                    loaded_dlls = getLoadedDLLs()
-                    loaded_dlls <- loaded_dlls[grep("^file", names(loaded_dlls),value=T)]
-                    if (length(loaded_dlls) > 10) {
-                        for (dll in head(loaded_dlls, -10)) {
-                            ##message("Unloading DLL ", dll[['name']], ": ", dll[['path']])
-                            dyn.unload(dll[['path']])
-                        }
-                    }
-                }
-                names(stan.prob) <- rec.rs$id
+                mod <- stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
+                stan.full <-  mclapply(1:length(stan.in2, function (i) {
+                    s <- summary(sampling(mod,data=stan.in2[[i]], cores=4)$summary)
+                    unload.ddl(mod) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
+                    return(s)
+                })
+                names(stan.full) <- rec.rs$id
 
-                saveRDS(stan.prob, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.','.chr22.prob.rds'))
+                saveRDS(stan.full, paste0('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/',gene,'.','.chr22.prob.rds'))
 
                 ##stan.fix <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff.stan', data=fix.input1[[1]])
 

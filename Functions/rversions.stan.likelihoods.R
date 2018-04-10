@@ -3,7 +3,7 @@ library(cowplot)
 library(MASS)
 library(emdbook) #simulate beta binomial
 library('Matrix');
-library('iterpc');
+##library('iterpc');
 library(mvtnorm)
 library(gridExtra)
 library(ggplot2)
@@ -350,3 +350,76 @@ neg.ase.prob.log <- function(v,K,s,ncov,betas,bj,phi,theta){
     }
     return(lprob)
     }
+
+#' coding /stan_eff/neg.only.noGT.rsnp.priors.eff2.stan
+#'
+#' This function allows you to calulate negnoGTeff2_log
+#' @param Y integer vector with counts for total genes per individual
+#' @param sNB vector with the number of possible genotypes for each individual
+#' @param gNB vector with genotypes of rsnp for each individual coded as 0,1,2
+#' @param pNB vector with the p(G|gfsnps)for each individual
+#' @param cov matrix with covariates as for stan, first 2 cols are 1's
+#' @param betas vector with regression coefs (intercept and covariates other than genotype)
+#' @param bj parameter for ase effect size
+#' @param phi parameter for neg binomial overdisperssion
+#' @keywords negative binomial noGT loglikelihood 
+#' @export
+#' @return scalar corresponding to the sum of log.likelihood weighted by p(G|gfsnps)
+#' neg.noGT.log()
+
+neg.noGT.log <- function(Y,sNB,gNB,pNB,cov,betas,bj,phi){
+    
+lprob=0;
+    pos=1;
+    ebj=exp(bj);
+    lmug0 = cov[,2:ncol(cov)]%*%betas;
+    for(i in 1:length(Y)){ ## neg binomial
+        ##probi=c();
+
+        ##https://en.wikipedia.org/wiki/List_of_logarithmic_identities
+        ltmp <- c() 
+        for (r in pos:(pos+sNB[i]-1)){
+            
+            lmu = lmug0[i];
+
+            lmu = ifelse(abs(gNB[r])==1 , lmu + log(1+ebj)-log(2) , lmu);
+            
+            lmu = ifelse(gNB[r]==2 , lmu + bj , lmu);
+
+            ##probi[r]=exp(dnbinom(Y[i],size=phi,mu=exp(lmu),log=TRUE))*pNB[r];
+
+            ltmp[r] <- dnbinom(Y[i],size=phi,mu=exp(lmu),log=TRUE) + log(pNB[r]) ## log of each term of likelihood per gT
+        }
+        ## calculate log(sum(exp(l.tmp)))
+
+        ltmp2 <- ltmp - max(ltmp)
+
+        ltmp3 <- max(ltmp) + log(sum(exp(ltmp2)))
+	
+	##cat("i= ",i, " r= ",r, " probi= ", probi);
+        ## cat("i= ",i, " lprob= ", lprob, " probi= ", probi);
+        
+
+        lprob=lprob+ltmp3;
+        pos=pos+sNB[i];
+    }
+    
+	
+        return(lprob);
+        
+    }
+
+#' aux for testing code for stan
+#'
+#' log(sum(exp(log(a1)),..,exp(log(an)))=log(a1) +log(sum(exp(log(ai-a1))))  from https://en.wikipedia.org/wiki/List_of_logarithmic_identities
+#' @param a vector of log(a1),...,log(an)
+#' @keywords log sum of the exponential of the elements in a vector
+#' @export
+#' @return scalar of the log(sum(a)), log sum of the exponential of the elements in a vector
+#' log_sum_exp()
+#' 
+log_sum_exp <- function(a){
+    lse= max(a) + log(sum(exp(a - max(a))))
+    return(lse)
+}
+

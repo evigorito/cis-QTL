@@ -200,8 +200,6 @@ x1=xtable(head(comb.sub[,c('lm.corr', 'neg.bj','prob.bj', 'fix.bj','pval', 'neg_
 print(x1, include.rownames=F, booktabs = TRUE, size ="scriptsize")
 
 
-
-
 ## make a DF with summaries
 
 DF <- do.call(rbind, lapply(list(abs(comb.sub$neg.bj - comb.sub$prob.bj), abs(comb.sub$fix.bj - comb.sub$prob.bj), comb.sub$s.neg_CI, comb.sub$s.prob_CI,  comb.sub$s.fix_CI, comb.sub$prob.rt, comb.sub$eff.fsnp), sum.fn))
@@ -549,3 +547,29 @@ ggsave('/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/noGT.pdf')
 ######################  Improve pipeline when running with noGT #######################
 
 ## coded in chr22.noGT.R
+
+## I made stan more efficient by using beta binomial built in function. I have noticed from noGT output that in same cases there is problem for stan to work out the model, I get initial values rejected. Looking at google it appears that "Usually what those initial value rejected errors mean is something has gone out of bounds or a function is being called with invalid inputs."
+
+## testing model with line=22
+
+expose_stan_functions('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.only.noGT.rsnp.priors.eff2.stan') #negnoGTeff2_log
+
+test2=stan.in.noGT2[[1]]
+
+## I run thelog.likelihood function sampling initial values as per stan:
+
+init<- matrix(runif(200,-2,2), ncol=3)
+phi.init <- runif(100,exp(-2),exp(2))
+tmp <- sapply(1, function(i) negnoGTeff2_log(test2$Y, test2$sNB, test2$gNB, test2$pNB, test2$cov, betas=init[i,1:2], bj=init[i,3],phi=phi.init[i] ))
+
+## stan failed to compute exp(neg_binomial_2_lpmf(Y[i] | exp(lmu), phi)) with same values of lmu or phi becuase the neg_binomial_2_lpmf() is very small. When known GT I only fork on th log scale and that is fine, the problem arises when I need to convert to the exp scale.
+
+## I re-coded neg.only.noGT.rsnp.priors.eff2.stan using the log(sum(a1,..,an))=log(a1) +log(sum(exp(log(ai-a1))))  from https://en.wikipedia.org/wiki/List_of_logarithmic_identities
+
+tmp.2 <- neg.noGT.log(Y=test2$Y, sNB=test2$sNB, gNB=test2$gNB, pNB=test2$pNB, cov=test2$cov, betas=init[i,1:2], bj=init[i,3],phi=phi.init[i])
+
+tmp.st <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.only.noGT.rsnp.priors.eff2.stan', data=test2)
+
+help.st <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/help.stan', data=test2)
+
+

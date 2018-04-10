@@ -579,7 +579,6 @@ stan.no.null <- function(a,y="bj", z=0){
 
 
 
-
 ############ Functions for working with unknown rSNP GT
 
 

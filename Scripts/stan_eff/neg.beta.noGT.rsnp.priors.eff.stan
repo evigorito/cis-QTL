@@ -1,4 +1,4 @@
-// negative and beta binomial for ASE eQTL with fixed genotypes but haplotype error accommodating complete allelic imbalance
+// negative and beta binomial for ASE eQTL with unknown genotypes
 
 functions{
 
@@ -66,20 +66,21 @@ functions{
 		
 	      
 data {
-  int<lower=0> N; // number  individuals
-  int<lower=0> G; // number of total genotypes NB
+  int<lower=0> N; // number  individuals NB
+  int<lower=0> G; // number of total genotypes for all individuals NB
+  int<lower=0> A; // number of individuals ASE info
   int<lower=0> L; // length of vectors with n counts, gase and p(H)
   int<lower=0> K; // number of covariates
   int<lower=0> M; // max of total ASE counts
   int Y[N]; // total gene counts
-  int sNB[N]; //  number of geno NB for each individual
+  int sNB[N]; //  number of possible genotypes NB for each individual
   vector[G] gNB; // each geno NB
   vector[G] pNB; // prob for each geno NB
   int gase[L]; // genotype ASE individuals
-  int m[N]; // total ase counts
+  int m[A]; // total ase counts
   int n[L]; //n counts for ASE ind
   vector[L] pH; //p(H) for ASE ind
-  int s[N]; // number of haplotypes per individual
+  int s[A]; // number of haplotypes per individual
   vector[M] v; // to avoid while loops
   matrix[N,1+K] cov;
 }
@@ -96,7 +97,7 @@ model {
       
   theta ~ gamma(1,.01); //  based on stan code example
   phi ~ gamma(1,0.01);
-  bj ~ normal(0, 0.34); // stan normal is mean and sd (sigma)
+  bj ~ normal(0, 0.54); // stan normal is mean and sd (sigma)
   betas[1] ~ normal(6,2); // stan normal is mean and sd
   for(i in 2:K){
     betas[i] ~ cauchy(0,2.5);//prior for the slopes following Gelman 2008   

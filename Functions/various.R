@@ -452,11 +452,16 @@ p.hap.pair <- function(h){
     nsnp <- ncol(h)
     N <- nrow(h)/2 # individuals is number of haplotypes/2
     ## haplotype frequencies
-    hstr <- apply(h,1,paste,collapse="")
-    hap.freq <- data.table(prop.table(table(hstr)))
+    DT <- as.data.table(h)
+    hap.freq <- DT[,.N, by=names(DT)][, N:=N/sum(N)] ## if DT has duplicated names (fsnp is rnsp) then hap.freq will label one with ".1", so names(DT) and hap.freq will be different
+    hap.freq[,hstr:= apply(hap.freq[,1:ncol(DT), with=F], 1,  paste, collapse="")]
+    h2 <- as.matrix(hap.freq[, 1:ncol(DT), with=F])
+    hap.freq[,names(hap.freq)[1:ncol(DT)]:=NULL]
+    ##hstr <- apply(h,1,paste,collapse="")
+    ##hap.freq <- data.table(prop.table(table(hstr)))
     #unique(h)
-    uhaps <- unique(hstr)
-    uhaps.pairs <- u.hap.pairs(h)   
+    uhaps <- unique(hap.freq$hstr)
+    uhaps.pairs <- u.hap.pairs(h2)   
     uhaps.pairs[,freq:=0]
     uhaps.pairs[,geno:=add.geno(as.character(Var1),as.character(Var2))]
     ## merge hap.freq with uhap.pairs by Var1 to get a col of freq_Var1, then do the same for Var2
