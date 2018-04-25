@@ -104,6 +104,8 @@ tab2vcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE for.AS.tab
 
 mergevcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE 22 22
 
+## QC vcf file, make sure GT is in the right format: inputs.R
+## make sure counts and vcf have the same samples:inputs.R
 
 ################################### Extract snp coordinates with REF and ALT alleles
 

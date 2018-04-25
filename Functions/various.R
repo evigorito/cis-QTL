@@ -1,12 +1,12 @@
-library(data.table, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
-library(cowplot, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(data.table)
+library(cowplot)
 library(MASS)
-library(emdbook, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3") #simulate beta binomial
+library(emdbook) #simulate beta binomial
 ##library('Matrix')#, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
 ##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
-library(mvtnorm, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
-library(gridExtra, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
-library(ggplot2, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4")
+library(mvtnorm)
+library(gridExtra)
+library(ggplot2)
 
 #source('/home/ev250/Bayesian_inf/trecase/Functions/stan.eff.R')
 
@@ -1294,3 +1294,40 @@ stan.sum <- function(DT, x="bj"){
     return(tmp)
 }
 
+#' Format a named list of stan output fro Btrecase.R
+#'
+#' This function allows you to extract the parameter information from a list of stan summaries (output from stan.many.sim)
+#' @param x list of summaries
+#' @param y parameter to extract from summary
+#' @param rtag optional argument,whether snps were grouped using tag function
+#' @param model, character vector indicating which model was run: full or neg.only
+#' @param nhets, vector with the number of hets  for each rsnp
+#' @param ASE.hets, vector with the number of hets with sufficient ASE counts for each rsnp
+#' @keywords stan multiple simulations 
+#' @export
+#' @return DT with formatted data
+#' stan.bt()
+
+stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA){
+    l <- lapply(x,function(i) i[y,])
+    DT <- data.table(do.call(rbind, l))
+    ## add col for whether 95%CI contains the null (0)
+    DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
+    ## add col with distance to the null if null="no" or length CI if null="yes"
+    DT[null=="no" & `2.5%` >0 ,d:= `2.5%`][null=="no" & `2.5%` <0 ,d:= -`97.5%`][null=="yes",d:=abs(`2.5%` - `97.5%`)]
+    DT[, d.aux:=d][null=="yes", d.aux:=-d] ## to sort length CI in ascending order
+    
+    if(!is.null(rtag)){
+        DT[,tag:=names(x)]
+    } else {
+        DT[,SNP:=names(x)]
+    }
+    setorder(DT,null,-d.aux)
+    ##DT[,d.aux:=NULL]
+    setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log(aFC)_", names(DT)[1:(ncol(DT)-1)]))
+    setcolorder(DT , names(DT)[c(14,1:8,11:13,9:10)])
+    DT[,model:=model]
+    DT[,nhets:=nhets]
+    DT[,ASE.hets:=ASE.het]
+    return(DT)
+}

@@ -573,3 +573,71 @@ tmp.st <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.only.
 help.st <- stan(file='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/help.stan', data=test2)
 
 
+####################### Testing function for running btrecase for 1 gene ##################
+
+## vcf qcd and counts with same samples as vcf.
+
+
+test <- btrecase.gt(gene="ENSG00000184164",
+                                chr=22,
+                                snps=5*10^5,
+                                counts.f='/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.GTqc.txt',
+                                covariates= '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.GT.rds',
+                                e.snps= '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt',
+                                gene.coord='/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/gene_data_longest.exons.txt',
+                                vcf='/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/chr22.GTqc.vcf.gz' ,
+                                
+                                le.file='/scratch/wallace/1000GP_Phase3/1000GP_Phase3_chr22.legend.gz' ,
+                                
+                                h.file='/scratch/wallace/1000GP_Phase3/1000GP_Phase3_chr22.hap.gz',
+                                
+                                nhets=5,min.ase=5,min.ase.het=5,tag.threshold=.9,q.test="no",
+                                
+                    out="/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/",
+                    model="both"
+                    )
+    
+
+## output test
+
+stan.sum <- fread(paste0(out,"/",gene,".stan.summary.txt"))
+
+rsnps.ex <- fread(paste0(out,"/",gene,".eqtl.trecase.excluded.rsnps.txt"))
+
+rsnps.ex[,.N, by=reason]
+
+r.tags <- fread(paste0(out,"/",gene,"eqtl.tags.lookup.txt"))
+
+head(r.tags)
+
+## example discrepancy between vcf file from array express and reference panel:
+
+#sample HG00136, snp 22 50311989 indel:2D_22_50311989 AAC   A
+#GT from vcf: 0|0, genotype from reference panel 1|0.
+
+## Also some samples from array express are not in the reference panel. (HG00135)
+
+## Even more clear for pos 49823393, chr 22, T,C. All 1's in ref panel, not in vcf from arrayexpress.
+
+## Some chains are slow when running stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
+
+# example with "50312651:C:T" (cis-window=0)
+
+# testing different initial values for theta
+
+initf <- function(t=1) {
+  list(betas = rep(0,2), bj= 0, phi = 1, theta = t)
+}
+
+n_chains <- 1
+theta.vals = c(0.1,0.5,2,3)
+init_ll <- lapply(1:n_chains, function(i) initf(t = theta.vals[i]))
+
+mod <- stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
+s <- sampling(mod,data=stan.in2[[i]], chains=n_chains,cores=n_chains, init=init_ll)
+                         
+      unload.ddl(mod) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
+    
+initial.vals=get_inits(s)
+init.v=do.call(rbind,lapply(initial.vals, unlist))
+sum.stan=summary(s)$c_summary[1:6,1,]

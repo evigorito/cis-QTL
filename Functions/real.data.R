@@ -32,9 +32,16 @@ vcf_cl <- function(cl1,cl2, sep=" ") {
 #' @return 
 #' cl_bcfq()
 
-cl_bcfq<- function(vcf,chr,st, end, part=c("body", "header")) {
+cl_bcfq<- function(vcf,chr=NULL,st=NULL, end=NULL, part=c("body", "header")) {
+  
+ 
     if(part=="body"){
-        x <- paste0('bcftools query -f "%CHROM %POS %ID %REF %ALT[ %GT] [ %AS]\\n" ', vcf,  " -r ",chr,":",st,"-",end)
+        x <- paste0('bcftools query -f "%CHROM %POS %ID %REF %ALT[ %GT] [ %AS]\\n" ', vcf)
+        if(!(is.null(chr) & is.null(st) & is.null(end))){
+            
+            x <- paste0('bcftools query -f "%CHROM %POS %ID %REF %ALT[ %GT] [ %AS]\\n" ', vcf,  " -r ",chr,":",st,"-",end)
+        }
+        
     } else {
         x <- paste0('bcftools query -f "%CHROM %POS %ID %REF %ALT[ %GT] [ %AS]\\n" ', vcf ," -H  | head -1 ")
         }
@@ -42,50 +49,118 @@ cl_bcfq<- function(vcf,chr,st, end, part=c("body", "header")) {
     return(x)
 }
 
-#' Extract GT and ASE fro a gene
+#' Extract GT and ASE for a gene
 #'
 #' This function allows you to extract GT and ASE for a gene, wraper for cl_bcfq and vcf_cl plus some formatting, removes samples with missing data or unphased. also removes snps if homo or missing for all samples. Adds id col to ease matching with legend/hap format
 #' @param vcf full path to vcf
-#' @param chr chromosome to extract
-#' @param st start position to extract
-#' @param end end position to extract
+#' @param chr chromosome to extract, null for whole vcf
+#' @param st start position to extract, null for whole vcf
+#' @param end end position to extract, null for whole vcf
+#' @param qc use function for qc purpose only
+#' @param exclude whether to return a list to snps excluded from vcf (all homo or missing)
 #' @keywords vcf fread
 #' @export
-#' @return data table 
+#' @return data table with GT and ASE, unless !is.null(excluded), returns list with first element data table with GT and ASE and second element a data table with exluded snps.
 #' vcf_w()
 
-vcf_w <- function(vcf,chr, st, end) {
+vcf_w <- function(vcf,chr=NULL, st=NULL, end=NULL, qc=NULL, exclude=NULL) {
     
-    body <-cl_bcfq(vcf, chr, st, end , part="body")
+        body <-cl_bcfq(vcf, chr, st, end , part="body")
    
-    header <- cl_bcfq(vcf, chr, st, end , part="header")
+        header <- cl_bcfq(vcf, chr, st, end , part="header")
+        
 
     ## open GT and ASE for the selected gene
 
     gt.ase <- tryCatch({vcf_cl(body,header,sep=" ")}, error=function(e){paste("Region not found", chr,st,end, sep=":")})
-    if(length(grep("Region not found", gt.ase))==1){
+    if(is.character(gt.ase)){
         return(gt.ase)
     } else {
+        
+        if(!is.null(qc)){
+            return(gt.ase)
+            } else {
+            
+                ## recode names gt.ase to make it compatible with Cincinatti files and functions
+                names(gt.ase) <- gsub(":","_",names(gt.ase))
+
+                ## replace unphased data with "." missing value
+                gt.ase[gt.ase=="0/0" | gt.ase=="0/1" | gt.ase=="1/0" | gt.ase=="1/1"] <- "."
+
+                ## exclude  snps if homo or missing for all samples
+                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) identical(unique(i),c("0|0", ".") ) | identical(unique(i),c("1|1", ".")) |  identical(unique(i),"0|0") | identical(unique(i), ".") | identical(unique(i),"1|1"))
+
+                ## this col will help to match snps with legend/hap reference panel
+                gt.ase[, id:= paste(POS, REF, ALT, sep=":")]
+                
+                if(is.null(exclude)){
+                    ## select relevant snps
+                    gt.ase <- gt.ase[which(ex==FALSE),]
+                    return(gt.ase)
+                } else {
+                    excl=gt.ase[which(ex==TRUE),]
+                    excl[,reason:="Missing or homo GT all samples"]
+                    excl <- excl[,.(id,reason)]
+                    l <- list(keep= gt.ase[which(ex==FALSE),],excluded=excl)
+                    return(l)
+                }
+        
+            }
     
-    ## recode names gt.ase to make it compatible with Cincinatti files and functions
-    names(gt.ase) <- gsub(":","_",names(gt.ase))
-
-    ## replace unphased data with "." missing value
-    gt.ase[gt.ase=="0/0" | gt.ase=="0/1" | gt.ase=="1/0" | gt.ase=="1/1"] <- "."
-
-    ## exclude  snps if homo or missing for all samples
-    ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) identical(unique(i),c("0|0", ".") ) | identical(unique(i),c("1|1", ".")) |  identical(unique(i),"0|0") | identical(unique(i), ".") | identical(unique(i),"1|1"))
-
-    gt.ase <- gt.ase[which(ex==FALSE),]
-
-    ## this col will help to match snps with legend/hap reference panel
-    gt.ase[, id:= paste(POS, REF, ALT, sep=":")]
-
-        return(gt.ase)
     }
-    
 }
 
+
+#' Check if gt.ase, output from vcf_w has phased GT in GT field, can also save a new vcf with excluding wrong GT by snp or by sample, as required.
+#'
+#' This function allows you to test wether a vcf_w returned object is correctly formatted in GT field with the option to list snps or samples with wrong GT in format to be excluded from 
+#' @param gt.ase object returned from vcf_w
+#' @param exclude optional argument,removes entries with wrong GT format by snps or by sample, options "snps" or "samples"
+#' @param vcf.path path and file name of original vcf, argument used for preparing new vcf with wrong GT entries removed
+#' @param path optional, path to save new vcf excluding wrongly formatted GT, the default corresponds to the working directory
+#' @param vcf.out optional, prefix for new vcf with wrong GT entries removed
+#' @keywords vcf gt qc 
+#' @export
+#' @return named vector when the only argument used is gt.ase. The vector gives the total number of snps, number of snps with wrong GT format, total number of samples and number of samples with wrong GT format. When all arguments are used it saves and indexes a new vcf excluding wrongly GT entries by snps or samples in format vcf.gz. In this mode the function returns a DT with the chr:pos:ref:alt of snps excluded or the name of the samples excluded.
+#' vcf.gt.qc()
+
+vcf.gt.qc <- function(gt.ase, exclude=c("snps","samples"), vcf.path, path=".", vcf.out="chr22.GTqc") {
+ 
+    gt.col <- grep("GT$", names(gt.ase))
+    ok <- c("0|1", "0|0","1|1", "1|0")
+    by.snp <- apply(gt.ase[,gt.col,with=FALSE],1, function(i) sum(!i %in% ok)!=0)
+    by.sample <- apply(gt.ase[,gt.col,with=FALSE],2, function(i) sum(!i %in% ok)!=0)
+    report <- c(nrow(gt.ase), sum(by.snp),length(gt.col), sum(by.sample))
+    names(report) <- c("total snps", "snps with wrong GT", "total samples","samples with wrong GT")
+    if(!(missing(exclude)  & missing(vcf.path) & missing(vcf.out))) {
+        na.ex <- pmatch(exclude,c("snps","samples"))
+        if(is.na(na.ex) | missing(vcf.path) | missing(vcf.out)){
+            stop("invalid 'exclude','vcf.path' or 'vcf.out' argument")
+        } else {
+            out <- paste0(path,"/",vcf.out,".vcf.gz")
+            if (exclude=="snps"){              
+                DT <- gt.ase[which(by.snp),.(CHROM,POS,REF,ALT)]
+                DT[,ex:=paste0(CHROM,":",POS)]
+                DT[,snps.excluded:=paste0(ex,":",REF,":",ALT)]
+                del <- paste0("^",paste0(DT$ex, collapse=","))
+                bcf.f <- paste("bcftools view -Oz -t",del,vcf.path,"-o",out)         
+                report <- data.table(snps.excluded=DT$snps.excluded)
+                
+            } else {
+                del <- names(by.sample)[by.sample]
+                del <- gsub(".GT$","",del)
+                del2 <- paste0("^",paste0(del,collapse=","))                
+                bcf.f <- paste("bcftools view -Oz -s",del2,vcf.path,"-o",out)
+                report <- data.table(samples.excluded=del)
+            }
+            system(bcf.f)
+            bcf.i <- paste("bcftools index -t", out)
+            system(bcf.i)            
+        }
+    }
+        
+    return(report)
+}
 
 
 
@@ -285,16 +360,17 @@ tot.ase_counts <- function(x,y=NULL,z=NULL){
         return(tmp3)
     } else {
     
-    ## add gene counts to ase
-    tmp4 <- cbind(t(y), tmp3)
-    ## add GT of rsnps
-    l  <- lapply(1:nrow(z), function(i) {
-        tmp5 <- cbind(t(z[i, grep( "_GT", names(z), value=T) , with=F]) , tmp4)
-        colnames(tmp5)[1:2] <- c("rsnp", "y")
-        rownames(tmp5) <- gsub("_GT","", rownames(tmp4))
-        tmp5 <- data.table(tmp5, keep.rownames=T)
-        return(tmp5)}
-        )      
+        ## add gene counts to ase
+        y2 <- y[,which(names(y) %in% rownames(tmp3)), with=FALSE]
+        tmp4 <- cbind(t(y2), tmp3)
+        ## add GT of rsnps
+        l  <- lapply(1:nrow(z), function(i) {
+            tmp5 <- cbind(t(z[i, grep( "_GT", names(z), value=T) , with=F]) , tmp4)
+            colnames(tmp5)[1:2] <- c("rsnp", "y")
+            rownames(tmp5) <- gsub("_GT","", rownames(tmp4))
+            tmp5 <- data.table(tmp5, keep.rownames=T)
+            return(tmp5)}
+            )      
         return(l)
     }
     

@@ -1,12 +1,12 @@
 ## Functions to run stan scripts more efficiently
-library(data.table, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
+library(data.table)
 library(MASS)
-library(emdbook, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3") #simulate beta binomial
+library(emdbook) #simulate beta binomial
 ##library('Matrix', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
 ##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
-library(mvtnorm, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
-library(gridExtra, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3")
-library(ggplot2, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4")
+library(mvtnorm)
+library(gridExtra)
+library(ggplot2)
 
 
 source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
@@ -25,12 +25,7 @@ source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
 input.neg.only.bj <- function(DT1,DT2,covar=1){
 
     N <- ncol(DT1)
-    if(covar==1){
-        cov <- data.table(covar.1=rep(1, N), covar.2=rep(1,N)) # I need at least 2 cols so stan will recognise covar as a matrix, which helps with downstream calculations in stan.
-     
-    } else { #first extra column will be ignored
-        cov <- cbind(rep(1, N), covar)
-    }
+    cov <- stan.cov(N,covar)
     y=unname(unlist(DT1))
     g.sub <- unname(unlist(DT2[,which(names(DT2) %in% paste0(names(DT1), "_GT")), with=F]))
     L <- list(N=N, K=ncol(cov)-1, Y=y, g=g.sub, cov=cov)
@@ -125,7 +120,7 @@ stan.neg.beta.prob.eff <- function(g, p.hap.pairs,h1,h2,geno.exp,ase=5, n=NULL){
                                 haps.other <- haps.g[which(names(haps.g) != names(h1.2.p))]
                                 ## get swaps
                                 p.v.swaps=c()  ## if I have no info for some swaps this p needs to be rescaled
-                                for(j in 1:length(haps.other)){
+                                for(j in 1:length(haps.other)) {
                                     hap.x <- strsplit(names(haps.other[j]), ",")[[1]][1]
                                     ##get the differences between obs hap and pop haps to swap ase
                                     dif <- which(unlist(strsplit(h1.short[i],split=""))!=unlist(strsplit(hap.x,split="")))
@@ -166,8 +161,12 @@ stan.neg.beta.prob.eff <- function(g, p.hap.pairs,h1,h2,geno.exp,ase=5, n=NULL){
                     inp$p <- inp$p[-w]
                     inp$n <- inp$n[-w]
                 }
-                
-                return(inp)
+                ## check if enough individuals with ase counts after removing not compatible with reference panel:
+                if(nrow(inp$gm[abs(g.ase)==1,])<=n){
+                    return("Not enough individuals with ASE counts")
+                } else {
+                    return(inp)
+                }
                 
             }
 }
