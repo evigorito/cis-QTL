@@ -19,7 +19,7 @@ parameters {
 	   vector[K] betas; // regression param
 	   real bj; // log fold change ASE
 	   real<lower=0> phi; //overdipersion param for neg binom
-  	   real<lower=0> theta; //the overdispersion parameter for beta binomial
+  	 real<lower=0> theta; //the overdispersion parameter for beta binomial
 }
 
 model {
@@ -28,13 +28,12 @@ model {
   vector[A] p; // ASE proportion
   real ebj;
   real debj;
-  real itheta; // inverse theta
   int pos; // to loop over haplotypes for each individual
   vector[L] ltmp; //  log BB likelihood
 
   // Priors
-  //theta ~ gamma(1,.01); //  based on stan code example
-  //phi ~ gamma(1,0.01);
+  theta ~ gamma(1,0.1); //  mean 10 
+  phi ~ gamma(1,0.1);  // mean 10
   bj ~ normal(0, 0.54); // stan normal is mean and sd (sigma) 2-fold allelic effect
   betas[1] ~ normal(6,4); // stan normal is mean and sd
   for(i in 2:K){
@@ -53,12 +52,11 @@ model {
   }
   
   pos = 1;
-  itheta=inv(theta);
   for(i in 1:A){ // ASE
     p[i]= gase[i]==1 ? debj : 0.5;
     p[i]= gase[i]==-1 ? 1-debj : p[i];  // haplotype swap
      for (r in pos:(pos+s[i]-1)){
-       ltmp[r]=beta_binomial_lpmf(n[r] | m[i], p[i]*itheta , (1-p[i])*itheta) + log(pH[r]);
+       ltmp[r]=beta_binomial_lpmf(n[r] | m[i], p[i]*theta , (1-p[i])*theta) + log(pH[r]);
      }
      target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
      pos=pos+s[i];
