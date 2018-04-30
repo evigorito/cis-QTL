@@ -80,8 +80,9 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
     ## create dt to collect rsnps excluded from analysis
     rsnps.ex <- data.table(id=character(), reason=character())
     if(is.numeric(snps)){
-        cis_window <- cl_coord(gene.coord,22,gene,cw=snps)
-        gt.as <- vcf_w(vcf,22, st=cis_window["start"], end=cis_window["end"], exclude="yes")
+        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        if(is.character(cis_window)) stop(cis_window)
+        gt.as <- vcf_w(vcf,chr, st=cis_window["start"], end=cis_window["end"], exclude="yes")
         if(is.character(gt.as)) stop(print(gt.as))
         rsnps.ex <- gt.as$excluded
         gt.as <- gt.as$keep
@@ -95,13 +96,14 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
         w <- which(!is.na(pos))
         if(!length(w)) stop(cat("Invalid format for snps ", snps[w]))
         ## get gene start and end, ciswindow=0
-        st_end <- cl_coord(gene.coord,chr,gene,cw=0)
+        st_end=tryCatch({cl_coord(gene.coord,chr,gene,cw=0)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        if(is.character(st_end)) stop(st_end)
         ## construct cis-window with snps, making sure to include the whole gene
         m <- min(pos) < st_end[1]
         M <- max(pos) > st_end[2]
         cis_window <- ifelse(m, min(pos), st_end[1])
         cis_window <- c(cis_window, ifelse(M, max(pos), st_end[2]))
-        gt.as <- vcf_w(vcf,22, cis_window["start"], cis_window["end"], exclude = "yes")
+        gt.as <- vcf_w(vcf,chr, cis_window["start"], cis_window["end"], exclude = "yes")
         if(is.character(gt.as)) stop(print("snps not found in vcf"))
         rsnps.ex <- gt.as$excluded[id %in% snps,]
         gt.as <- gt.as$keep
@@ -126,7 +128,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
         if(!is.null(prefix)){
             write.table(dt,paste0(out,"/",prefix,".tags.lookup.txt"), row.names=FALSE)
         } else {
-            write.table(dt,paste0(out,"/",gene,"eqtl.tags.lookup.txt"), row.names=FALSE)
+            write.table(dt,paste0(out,"/",gene,".eqtl.tags.lookup.txt"), row.names=FALSE)
         }
         
         ## restrict rsnp to tag snps
@@ -258,8 +260,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
                             ## count number of hets with sufficient ase counts to input in final report
                             ASE.hets <- sapply(stan.in1, function(i) nrow(i$gm[abs(g.ase)==1,]))
                             full.sum <- stan.bt(x=stan.full,y= "bj",rtag=r.tag,model="trec-ase", nhets=rec.full[id%in% names(stan.full),nhet],ASE.het=ASE.hets)
-                            ##cat("number of rsnp full model: ",length(stan.full))
-                        
+                            
                         } ## closing from no fnsps ref panel
                     } ## closing from no rnsps ref panel
                 }
@@ -293,11 +294,13 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
     } else { ## when model==trec I add all rec.rs snps to prepare input
 
         rsnps.ex <- rbind(rsnps.ex,data.table(id=rec.rs$id, reason="requested model trec"))
+        #cat("trec only", rsnps.ex[,.N,by=reason]$reason, rsnps.ex[,.N,by=reason]$N)
 
     }
     ## run neg.binom only 
     ## prepare input and run
     if(nrow(rsnps.ex)>0) {
+        #cat("nrow rsnps.ex ", nrow(rsnps.ex))
         ex <- c("Missing or homo GT all samples", "rsnp with less than","below cut-off for qtest")
         w <- unlist(sapply(ex, function(i) grep(i,rsnps.ex$reason)))
         id.keep <- rsnps.ex[!w,id]
@@ -314,7 +317,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
             neg.sum <- stan.bt(x=stan.neg, y="bj",rtag=r.tag,model="trec", nhets=rec.rs[id %in% id.keep,nhet])
             if( exists("full.sum")){
                 neg.sum <- rbind(full.sum, neg.sum)
-                setorder(neg.sum,`log(aFC)_null`,-`log(aFC)_d.aux`, -model)
+                setorder(neg.sum,`log2(aFC)_null`,-`log2(aFC)_d.aux`, -model)
                 
             }
             if(!is.null(prefix)){             
@@ -333,7 +336,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
             return("No rsnps run using trec")
             
         }
-        if(!exists("full.sum")){
+        if(exists("full.sum")){
                     if(!is.null(prefix)) {             
                         write.table(full.sum, paste0(out,"/",prefix,".stan.summary.txt"), row.names=FALSE)
                     } else {

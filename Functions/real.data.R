@@ -72,7 +72,7 @@ vcf_w <- function(vcf,chr=NULL, st=NULL, end=NULL, qc=NULL, exclude=NULL) {
 
     ## open GT and ASE for the selected gene
 
-    gt.ase <- tryCatch({vcf_cl(body,header,sep=" ")}, error=function(e){paste("Region not found", chr,st,end, sep=":")})
+    gt.ase <- tryCatch({vcf_cl(body,header,sep=" ")}, error=function(e){paste("Region not found for chrom and positions", chr,st,end, sep=":")})
     if(is.character(gt.ase)){
         return(gt.ase)
     } else {

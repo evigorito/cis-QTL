@@ -457,8 +457,6 @@ p.hap.pair <- function(h){
     hap.freq[,hstr:= apply(hap.freq[,1:ncol(DT), with=F], 1,  paste, collapse="")]
     h2 <- as.matrix(hap.freq[, 1:ncol(DT), with=F])
     hap.freq[,names(hap.freq)[1:ncol(DT)]:=NULL]
-    ##hstr <- apply(h,1,paste,collapse="")
-    ##hap.freq <- data.table(prop.table(table(hstr)))
     #unique(h)
     uhaps <- unique(hap.freq$hstr)
     uhaps.pairs <- u.hap.pairs(h2)   
@@ -1294,7 +1292,7 @@ stan.sum <- function(DT, x="bj"){
     return(tmp)
 }
 
-#' Format a named list of stan output fro Btrecase.R
+#' Format a named list of stan output for Btrecase.R
 #'
 #' This function allows you to extract the parameter information from a list of stan summaries (output from stan.many.sim)
 #' @param x list of summaries
@@ -1311,6 +1309,9 @@ stan.sum <- function(DT, x="bj"){
 stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA){
     l <- lapply(x,function(i) i[y,])
     DT <- data.table(do.call(rbind, l))
+    ## convert to log2
+    DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[c(1:8)]]
+    DT[,names(DT)[c(1:8)] := DT2]
     ## add col for whether 95%CI contains the null (0)
     DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
     ## add col with distance to the null if null="no" or length CI if null="yes"
@@ -1324,7 +1325,7 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA){
     }
     setorder(DT,null,-d.aux)
     ##DT[,d.aux:=NULL]
-    setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log(aFC)_", names(DT)[1:(ncol(DT)-1)]))
+    setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log2(aFC)_", names(DT)[1:(ncol(DT)-1)]))
     setcolorder(DT , names(DT)[c(14,1:8,11:13,9:10)])
     DT[,model:=model]
     DT[,nhets:=nhets]
