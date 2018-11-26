@@ -42,7 +42,7 @@ model {
 
   // Likelihood
   ebj=exp(bj); // avoid repeating same calculation
-  debj=exp(bj)/(1+exp(bj));
+  debj=ebj/(1+ebj);
 
   lmu = cov[,2:cols(cov)]*betas;
   for(i in 1:N){ // neg binomial

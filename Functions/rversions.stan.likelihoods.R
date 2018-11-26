@@ -349,7 +349,98 @@ neg.ase.prob.log <- function(v,K,s,ncov,betas,bj,phi,theta){
        
     }
     return(lprob)
+}
+
+#' coding /stan_eff/neg.only.eff2.stan
+#'
+#' This function allows you to calulate the likelihood used in /neg.only.eff2.stan
+#' @param N total number of individuals
+#' @param K number of covariates
+#' @param Y integer vector with counts for total genes per individual
+#' @param g vector with genotypes of rsnp for each individual 
+#' @param cov matrix with covariates as for stan, first 2 cols are 1's
+#' @param betas vector with regression coefs (intercept and covariates other than genotype)
+#' @param bj parameter for ase effect size
+#' @param phi parameter for neg binomial overdisperssion
+#' @keywords negative binomial loglikelihood eff2
+#' @export
+#' @return scalar corresponding to the sum of log.likelihood
+#' neg.GT.eff2.log()
+
+neg.GT.eff2.log <- function(N,K,Y,g,cov,betas,bj,phi){
+    lmu=cov[,2:ncol(cov), drop=F] %*% betas  ## defaults to g==0
+    for(i in 1:N){
+        if(abs(g[i])==1){
+            lmu[i,1] <- lmu[i,1] + log(1+exp(bj)) -log(2)
+        }
+        if(g[i]==2){
+            lmu[i,1] <- lmu[i,1] + bj
+        }
     }
+            
+    neg <- sum(dnbinom(Y,size=phi,mu=exp(lmu),log=TRUE))
+    return(neg)
+}
+
+#' coding /stan_eff/neg.beta.prob.phasing.priors.eff2.stan, ASE part only also for noGT ASE part only (/stan_eff/neg.beta.noGT.rsnp.priors.eff2.stan)
+#'
+#' This function allows you to calulate the likelihood for ASE only based on /stan_eff/neg.beta.prob.phasing.priors.eff2.stan or  /stan_eff/neg.beta.noGT.rsnp.priors.eff2.stan
+#' @param A total number of individuals with ASE counts
+#' @param s vector with number of possible haplotypes for each individual with ASE counts
+#' @param gase vector with genotypes of rsnp for each individual with ASE counts
+#' @param m vector with total ase counts
+#' @param n vector with ase counts for haplotype2 for each individual
+#' @param pH vector with p(H) for each haplotype for each individual
+#' @param bj parameter for ase effect size
+#' @param theta overdisperssion parameter for beta binomial 
+#' @keywords beta binomial loglikelihood eff2
+#' @export
+#' @return scalar corresponding to the sum of log.likelihood
+#' bb.eff2.log()
+
+bb.eff2.log <- function(A,s,gase,m,n,pH,bj,theta){
+    lprob=0
+    ebj=exp(bj); ## avoid repeating same calculation
+    debj=ebj/(1+ebj);
+    lase <- c()
+    pos=1
+    p=rep(0.5,A)
+    for(i in 1:A){
+        if(gase[i]==1) { p[i] <- debj}
+        if(gase[i]==-1) {p[i] <- 1-debj} ## hap swap
+        
+        for(r in pos:(pos+s[i]-1)){
+            lase[r]=dbetabinom(x=n[r],size=m[i],prob=p[i],theta=theta,log=TRUE) + log(pH[r])
+        }
+        lprob <- lprob + log_sum_exp(lase[pos:(pos+s[i]-1)])
+        pos=pos+s[i]
+    }
+    return(lprob)
+}
+
+            
+
+#' coding /stan_eff/neg.beta.prob.phasing.priors.eff2.stan
+#'
+#' This function allows you to calulate the likelihood  used in /neg.beta.prob.phasing.priors.eff2.stan
+#' @param x list with the inputs required to run /neg.beta.prob.phasing.priors.eff2.stan: N, number of total individuals, A, number of individuals with ASE counts. L, length of vectors with n counts and p(H); K, number of covariates; Y, total gene counts; g, genotype of rnsp for all individuals; gase, genotype of rsnp for ASE individuals; m, total ase counts; n, ase counts hap2; pH, p(H) for n counts; s, vector with the number of possible haplotypes for eaach individual with ase counts, cov  matrix with covariates as for stan, first 2 cols are 1's
+#' @param betas vector with regression coefs (intercept and covariates other than genotype)
+#' @param bj parameter for ase effect size
+#' @param phi parameter for neg binomial overdisperssion
+#' @param theta overdispersion parameter for beta binomial
+#' @keywords negative binomial and ASE GT loglikelihood eff2
+#' @export
+#' @return scalar corresponding to the sum of log.likelihood
+#' GT.eff2.log()
+
+GT.eff2.log <- function(x,betas,bj,phi,theta){
+    neg.l <- neg.GT.eff2.log(N=x$N,K=x$K,Y=x$Y,g=x$g,cov=x$cov,betas,bj,phi)
+    ase.l <- bb.eff2.log(A=x$A,s=x$s,gase=x$gase,m=x$m,n=x$n,pH=x$pH,bj,theta)
+    return(neg.l+ase.l)
+
+}
+
+
 
 #' coding /stan_eff/neg.only.noGT.rsnp.priors.eff2.stan
 #'
@@ -357,8 +448,8 @@ neg.ase.prob.log <- function(v,K,s,ncov,betas,bj,phi,theta){
 #' @param Y integer vector with counts for total genes per individual
 #' @param sNB vector with the number of possible genotypes for each individual
 #' @param gNB vector with genotypes of rsnp for each individual coded as 0,1,2
-#' @param pNB vector with the p(G|gfsnps)for each individual
-#' @param cov matrix with covariates as for stan, first 2 cols are 1's
+#' @param pNB vector with the p(G-rsnp|g-fsnps)for each individual
+#' @param cov matrix with covariates as for stan, first 2 cols are 1's to avoid converted to vector in stan
 #' @param betas vector with regression coefs (intercept and covariates other than genotype)
 #' @param bj parameter for ase effect size
 #' @param phi parameter for neg binomial overdisperssion
@@ -369,45 +460,59 @@ neg.ase.prob.log <- function(v,K,s,ncov,betas,bj,phi,theta){
 
 neg.noGT.log <- function(Y,sNB,gNB,pNB,cov,betas,bj,phi){
     
-lprob=0;
+    lprob=0;
     pos=1;
     ebj=exp(bj);
-    lmug0 = cov[,2:ncol(cov)]%*%betas;
+    lmug0 = cov[,2:ncol(cov), drop=FALSE]%*%betas; ## log(mu) for GT==0
+    ltmp <- c()
+    lmu <- c()
     for(i in 1:length(Y)){ ## neg binomial
-        ##probi=c();
-
         ##https://en.wikipedia.org/wiki/List_of_logarithmic_identities
-        ltmp <- c() 
+        
         for (r in pos:(pos+sNB[i]-1)){
             
-            lmu = lmug0[i];
+            ##lmu[r] = lmug0[i];
 
-            lmu = ifelse(abs(gNB[r])==1 , lmu + log(1+ebj)-log(2) , lmu);
+            lmu[r] = ifelse(abs(gNB[r])==1 , lmug0[i] + log(1+ebj)-log(2) , lmug0[i]);
             
-            lmu = ifelse(gNB[r]==2 , lmu + bj , lmu);
+            lmu[r] = ifelse(gNB[r]==2 , lmug0[i] + bj , lmu[r])
+            
 
-            ##probi[r]=exp(dnbinom(Y[i],size=phi,mu=exp(lmu),log=TRUE))*pNB[r];
-
-            ltmp[r] <- dnbinom(Y[i],size=phi,mu=exp(lmu),log=TRUE) + log(pNB[r]) ## log of each term of likelihood per gT
+            ltmp[r] <- dnbinom(Y[i],size=phi,mu=exp(lmu[r]),log=TRUE) + log(pNB[r]) ## log of each term of likelihood per gT
         }
-        ## calculate log(sum(exp(l.tmp)))
-
-        ltmp2 <- ltmp - max(ltmp)
-
-        ltmp3 <- max(ltmp) + log(sum(exp(ltmp2)))
+        ## calculate log(sum(exp(l.tmp))) per individual
 	
-	##cat("i= ",i, " r= ",r, " probi= ", probi);
-        ## cat("i= ",i, " lprob= ", lprob, " probi= ", probi);
+        ##cat("i= ",i, " lsumexp= ", log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]), "\n");
         
-
-        lprob=lprob+ltmp3;
+        lprob=lprob + log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]);
         pos=pos+sNB[i];
     }
     
 	
         return(lprob);
         
-    }
+}
+
+#' coding /stan_eff/neg.beta.noGT.rsnp.priors.eff2.stan
+#'
+#' This function allows you to calulate the likelihood used in /stan_eff/neg.beta.noGT.rsnp.priors.eff2.stan
+#' @param x list input to neg.beta.noGT.rsnp.priors.eff2.stan
+#' @param bj parameter for ase effect size
+#' @param theta overdisperssion parameter for beta binomial 
+#' @keywords beta binomial loglikelihood eff2
+#' @export
+#' @return scalar corresponding to the sum of log.likelihood
+#' noGT.eff2.log()
+
+noGT.eff2.log <- function(x,betas,bj,phi,theta){
+    neg.l <- neg.noGT.log(Y=x$Y,sNB=x$sNB,gNB=x$gNB,pNB=x$pNB,cov=x$cov,betas,bj,phi)
+    ase.l <- bb.eff2.log(A=x$A,s=x$s,gase=x$gase,m=x$m,n=x$n,pH=x$pH,bj,theta) ##same function for GT and noGT
+    return(neg.l+ase.l)
+}
+
+
+
+
 
 #' aux for testing code for stan
 #'

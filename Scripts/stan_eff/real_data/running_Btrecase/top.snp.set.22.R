@@ -76,7 +76,7 @@ counts.s <- counts.g[, unlist(lapply(gsub("_GT","", names(rec.rs)),function(i) g
 
 ## run linear regression on log(counts.g) vs GT
 
-fit.all <- lm.rsnp(gt.rs,counts.s)
+fit.all <- lm.rsnp(DT2=gt.rs,DT1=counts.s)
 
 ## merge with top.genes.f to compare outputs
 
@@ -641,3 +641,31 @@ s <- sampling(mod,data=stan.in2[[i]], chains=n_chains,cores=n_chains, init=init_
 initial.vals=get_inits(s)
 init.v=do.call(rbind,lapply(initial.vals, unlist))
 sum.stan=summary(s)$c_summary[1:6,1,]
+
+# issue was not to do with initial values but sorted using a more informative prior for theta.
+
+### New issue, Btrecase.GT.R struggles preparing input with many fsnps and many rsnps: example
+
+gene="ENSG00000093072"
+
+snps=5*10^5
+counts.f='/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.GTqc.txt'
+
+covariates= '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.GT.rds'
+
+e.snps= '/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt'
+
+gene.coord='/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/gene_data_longest.exons.txt'
+
+vcf='/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/chr22.GTqc.vcf.gz'
+
+le.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr22.legend.gz'
+
+h.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr22.hap.gz'
+
+nhets=5
+min.ase=5
+min.ase.het=5
+tag.threshold=.9
+q.test="no"
+

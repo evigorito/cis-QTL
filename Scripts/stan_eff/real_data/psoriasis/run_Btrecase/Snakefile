@@ -1,0 +1,98 @@
+##############################################################
+## Apply bayesian trecase to psoriasis data, running analysis 
+##############################################################
+
+shell.prefix("source ~/.bashrc; ")
+import pandas as pd
+configfile: "config.yaml"
+
+subworkflow InputPrep:
+    workdir: "/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/real_data/psoriasis"
+
+## Functions
+
+def gene_chrom(File=config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt", sep=" "):
+    """ Make a dictionary with keys gene and values chromosome from a file with first col gene_id and second col CHROM """
+    data=pd.read_csv(File, sep=sep)
+    keys=list(data['gene_id'])
+    values=[str(x) for x in data['CHROM']]
+    dic=dict(zip(keys,values))
+    return dic
+
+## Rules
+
+rule all:
+    input:
+        #expand(config['output_dir'] + "/Btrecase/output/{gene}/btrecase.log", gene="ENSG00000233645")
+        "Scripts/report.pdf"
+
+rule html_table:
+    """ Retrieve table 1 with psoriasis gwas hits, reference
+Nat Commun. 2017; 8: 15382"""
+    params:
+        table='https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5458077/table/t1/?report=objectonly'
+    output:
+        config['output_dir'] + "/pso_gwas/table1.csv"
+    script:
+        "Scripts/html_table.py"
+
+rule pdf_table:
+    """ From a pdf file select pages with the table to extract, may be split into more than 1 page, and save it as csv file. To specify the pages enter the number in params. Defaults to page 1"""
+    input:
+        '/mrc-bsu/scratch/ev250/psoriasis/pso_gwas/ncomms15382-s1-1.pdf'
+    params:
+        pages=[17, 18]
+    output:
+        config['output_dir'] + "/pso_gwas/SupTable2.csv"
+    script:
+        "Scripts/pdf_table.py"
+
+
+rule SNP_close_genes:
+    """Find genes within a cis-window distance to a SNP. Uses gene coordinates from InputPrep subworkflow"""
+    input:
+        tables=expand(config['output_dir'] + "/pso_gwas/{table}.csv", table=["table1", "SupTable2"]),
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt")        
+    params:
+        cis_window=5*10**5
+    output:
+        config['output_dir'] + "/pso_gwas/close_genes.txt"
+    script:
+        "Scripts/SNP_close_genes.R"
+
+rule get_DRG:
+    """Downloads table with DEGs from J Invest Dermatol. 2014 Jul;134(7):1828-1838. doi: 10.1038/jid.2014.28. Epub 2014 Jan 17. Genes with pval <10^-6 are present."""
+    params:
+        page='https://ars.els-cdn.com/content/image/1-s2.0-S0022202X15368834-mmc2.xls'
+    output:
+        config['output_dir'] + "/pso_gwas/DRG_JID2014.xls"
+    shell:
+        "wget {params.page} ; "
+        "mv 1-s2.0-S0022202X15368834-mmc2.xls {output} "
+
+rule select_genes:
+    """Select genes to run model. For DRG indicate colclass to read excel file. Select distance to choose proximal genes to gwas hits"""
+    input:
+        gwas=config['output_dir'] + "/pso_gwas/close_genes.txt",
+        drg=config['output_dir'] + "/pso_gwas/DRG_JID2014.xls"
+    params:
+        colclass=["character"]+["numeric" for i in range(7)],
+        dist=10**5
+    output:
+        config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt"
+    script:
+        "Scripts/genes2test.R"
+
+rule report:
+    """ Creates report by rendering "Scripts/report.R" with appropiate inputs"""
+    input:
+        gwas=config['output_dir'] + "/pso_gwas/close_genes.txt",
+        drg=config['output_dir'] + "/pso_gwas/DRG_JID2014.xls",
+        script=ancient("Scripts/report.R")
+    params:
+        colclass=["character"]+["numeric" for i in range(7)]
+    output:
+        "Scripts/report.pdf"
+    script:
+        "Scripts/RenderReport.R"
+

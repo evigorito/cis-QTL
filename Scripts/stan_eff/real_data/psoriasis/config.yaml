@@ -1,0 +1,56 @@
+##
+
+{
+    # directory to write all output data files to
+    "output_dir" :  "/mrc-bsu/scratch/ev250/psoriasis",
+
+    # sample meta data from array express for psoriasis data
+    "sample_meta" : "/mrc-bsu/scratch/ev250/psoriasis/sample_info/E-GEOD-54456.sdrf.txt",
+
+    # path to STAR
+    "STAR" : "/mrc-bsu/scratch/ev250/bin/STAR/source/STAR",
+
+    # path to file to make STAR indices
+    "ref_fasta" : "/home/ev250/rds/hpc-work/reference_genome/built37/Homo_sapiens.GRCh37.dna.primary_assembly.fa",
+
+    "ref_gtf" :  "/home/ev250/rds/hpc-work/reference_genome/built37/Homo_sapiens.GRCh37.87.gtf",
+    "indices" : "/mrc-bsu/scratch/ev250/reference_genome/built37/indices",
+
+    # path to save file for exon by gene rds object to use for counting reads, or path to file if already made.
+
+    "ebg" : "/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_ebg.rds",
+
+    # filter read cut-off for total gene counts
+    
+    "filter": 100,
+
+    # path to gtf file with annotations
+    "ref_gtf" :  "/home/ev250/rds/hpc-work/reference_genome/built37/Homo_sapiens.GRCh37.87.gtf",
+
+    # path to reference fasta file to call variants
+    'fasta_ref' : "/mrc-bsu/scratch/ev250/reference_genome/built37/human_g1k_v37.fasta",
+
+    # path to snpEff to add annotations to vcf after calling variants
+    'snpEFF' : "/home/ev250/bin/snpEff/snpEff.jar",
+
+    # path to reference panel vcf with added alt allele (created in rule ref_panel_alt from emedlab snakefile
+    'RP_alt': "/mrc-bsu/scratch/ev250/emedlab/RNA/DNA",
+
+    # path to reference panel map, sample, legend and hap files
+    'RPpath' : "/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3",
+
+    # file with group to use for shapeit(in this case EUR)
+    'shapeit_group' : "/mrc-bsu/scratch/ev250/psoriasis/shapeit_in/group.list",
+
+    # files with blacklist variants/regions from phaser
+    'phaser_blacklist' : "/mrc-bsu/scratch/ev250/PHASER_files/hg19_hla.bed",
+
+    'phaser_blackHapCounts' : "/mrc-bsu/scratch/ev250/PHASER_files/hg19_haplo_count_blacklist.bed",
+    # path to phaser
+    'phaser' : "/mrc-bsu/scratch/ev250/bin/phaser/phaser/phaser.py",
+    
+      
+  
+}
+
+

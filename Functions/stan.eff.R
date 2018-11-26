@@ -7,6 +7,7 @@ library(emdbook) #simulate beta binomial
 library(mvtnorm)
 library(gridExtra)
 library(ggplot2)
+library(tidyr)
 
 
 source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
@@ -92,7 +93,7 @@ stan.neg.beta.prob.eff <- function(g, p.hap.pairs,h1,h2,geno.exp,ase=5, n=NULL){
                 h1.short <- apply(h1[A,],1,paste,collapse="")
                 h2.short <- apply(h2[A,],1,paste,collapse="")
                 inp <- list(yg=geno.exp[,.(y,rsnp)],gm=data.table(g.ase=g.trimmed$rsnp,m=m.counts[A]),n=list(), p=list())
-                for(i in 1:nrow(g.trimmed)){
+                for(i in 1:nrow(g.trimmed)) {
                     p.v <- c()
                     n.v <- c()
                     ## get haps from population with p(H|G)>0
@@ -127,7 +128,7 @@ stan.neg.beta.prob.eff <- function(g, p.hap.pairs,h1,h2,geno.exp,ase=5, n=NULL){
                                     if(sum(dif == ncol(g))==1){ # at least swapped rSNP
                                         dif <- which(unlist(strsplit(h2.short[i],split=""))!=unlist(strsplit(hap.x,split=""))) # swap haplotype2 to use same calculation
                                     }
-                                    ## get ase: only if sum(g.trimmed[i,m.col[dif], with=F])!=0, otherwise I will be swapping snps with no counts, so the overdisperssion would be 0, equivalent to no swap.
+                                    ## get ase: only if sum(g.trimmed[i,m.col[dif], with=F])!=0, otherwise I will be swapping snps with no counts,  equivalent to no swap.
 
                                     if(sum(g.trimmed[i,m.col[dif], with=F])!=0){
                                     
@@ -162,7 +163,7 @@ stan.neg.beta.prob.eff <- function(g, p.hap.pairs,h1,h2,geno.exp,ase=5, n=NULL){
                     inp$n <- inp$n[-w]
                 }
                 ## check if enough individuals with ase counts after removing not compatible with reference panel:
-                if(nrow(inp$gm[abs(g.ase)==1,])<=n){
+                if(nrow(inp$gm[abs(g.ase)==1,])<n){
                     return("Not enough individuals with ASE counts")
                 } else {
                     return(inp)
@@ -192,6 +193,246 @@ stan.rem <- function(l){
     }
     return(l)
 }
+
+
+
+#' function for formatting input for trecase stan, wrapping p.hap.pair and stan.neg.beta.prob.eff to avoid creating big objects when returning from p.hap.pair
+#'
+#' This function allows you to format input for stan per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual. Starts from refernce panel input, calculates p(H|G) and then prepares stan input for full model
+#' @param rp.1r numeric of haplotypes from reference panel for 1 rsnp
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param rs.hap data.table with haplotypes for the rsnp in all samples, 1 row 
+#' @param geno.exp output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.het minimun number of het individuals for rsnp with counts >=ase, trease default 5
+#' @keywords stan input
+#' @export
+#' @return list of 1) data table with total counts (y) and genotype rsnp (g) 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n. The first haplotype pair corresponds to {h1,h2}, the "true" one.
+#'
+#' stan.trecase.eff()
+
+stan.trecase.eff <- function(rp.1r, rp.f, f.ase, rs.hap, geno.exp,min.ase=5, min.ase.het=5){
+  
+  rp2 <- t(rbind(rp.f,rp.1r)) ## get ref panel fsnps and 1 rsnp in the same format I have functions from simulations
+  
+  ## calculate P(H|G) ref panel for each rsnp                   
+  tmp <- p.hap.pair.r(rp2) 
+  
+  ## get haps for fsnps and rsnp
+  h.samp <- hap_sam(x=f.ase,y=rs.hap$id,z=rs.hap)
+  g= Reduce("+", h.samp)
+  
+  tmp <- stan.neg.beta.prob.eff(g , p.hap.pairs=tmp, h1=h.samp[[1]], h2=h.samp[[2]], geno.exp=geno.exp, ase=min.ase, n=min.ase.het )
+  
+  return(tmp)
+  
+  
+}
+
+
+#' function for formatting input for trecase stan, wrapping p.hap.pair and stan.neg.beta.prob.eff to avoid creating big objects when returning from p.hap.pair,k version 2
+#'
+#' This function allows you to format input for stan per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual. Starts from refernce panel input, calculates p(H|G) and then prepares stan input for full model
+#' @param counts.g named vector  with total gene counts, names are sampleID
+#' @param rp.1r numeric of haplotypes from reference panel for 1 rsnp
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param rs.hap data.table with haplotypes for the rsnp in all samples, 1 row
+#' @param rec.rsnp data table with GT for rsnp in scale 0,1,-1,2 in all samples, 1 row
+#' @param stan.f output from stan.fsnp.noGT.eff list with fSNPs summary data
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.het minimun number of het individuals for rsnp with counts >=ase, trease default 5
+#' @keywords stan input
+#' @export
+#' @return list of 1) data table with total counts (y) and genotype rsnp (g) 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n. The first haplotype pair corresponds to {h1,h2}, the "true" one.
+#'
+#' stan.trecase.eff2()
+
+stan.trecase.eff2 <- function(counts.g, rp.1r, rp.f, f.ase, rs.hap, rec.rsnp, stan.f,min.ase=5, min.ase.het=5) {
+
+    ######### ASE side
+    ## Start by checking if enough ind with ASE counts, otherwise abort
+   
+    m=stan.f$m
+    ## remove "_GT" from samples in "m" in  rec.rsnp to ease computations
+
+    setnames(rec.rsnp, sapply(names(m), function(i) grep(i,names(rec.rsnp))), names(m))
+    gm <- data.table(g.ase= unname(unlist(rec.rsnp[1, names(m), with=F])) , m=m)
+
+    ## check if enough hets
+
+    if(sum(abs(gm$g.ase)==1) <  min.ase.het) {
+        return("Not enough het individuals with sufficient ASE counts")
+    }
+   
+  
+    rp2 <- t(rbind(rp.f,rp.1r)) ## get ref panel fsnps and 1 rsnp in the same format I have functions from simulations
+    
+    ## calculate P(H|G) ref panel for each rsnp                   
+    M <- p.hap.pair.s(rp2) 
+
+    ## make M.cond to extract p(H|G)
+    M.cond <- mat.cond(M)
+    DT.cond <- data.table(summary(M.cond))  ## to easily get non-0 entries
+   
+    
+    ## make named vector with names rownames(M) and value swapped rownames(M)
+    row.split <- unlist(strsplit(rownames(M), ","))
+    row.2 <- row.split[1:length(row.split) %%2 == 0]  ## take even entries
+    row.1 <- row.split[1:length(row.split) %%2 ==1] ## odd entries
+    s.M <- paste(row.2, row.1, sep=",")  ## invert haplotypes
+    names(s.M) <-  rownames(M)
+    
+    ## get n counts and p for each  sample
+    n.all <- list()
+    pH.all <- list()
+    
+    for(i in 1:length(stan.f$n)) {
+        n.mat <- stan.f$n[[i]]
+        ## get hap pairs for fsnps 
+        hap.f.p <- lapply(colnames(n.mat), function(i) unlist(strsplit(i,",")))
+
+        ## get rsnp GT for samples in n.mat
+        gt.r <- unlist(rec.rsnp[, rownames(n.mat), with=F])
+        
+        ## get unique gt.n
+
+        u.gt.r <- unique(unlist(gt.r))
+
+        ## by gt
+        u.hom <- u.gt.r[u.gt.r==0 | u.gt.r==2]
+        u.het <- u.gt.r[abs(u.gt.r)==1] ## any het
+        if(length(u.hom)){
+
+            hap.r.hom <- lapply(hap.f.p, function(i) { tmp <- sapply(u.hom, function(j) paste(paste0(i,rep(j/2,2)), collapse=","))
+                names(tmp) <- paste0("g",u.hom)
+                return(tmp)
+            })
+            
+            if(length(hap.f.p)==1){
+                hap.hom <- as.data.table(matrix(unlist(hap.r.hom), nrow=1, dimnames=list("",names(hap.r.hom[[1]]))))
+               
+            } else {
+                
+                hap.hom <- as.data.table(Reduce(rbind,hap.r.hom))
+            }
+             
+        }
+
+        if(length(u.het)){ ## first half of list for gase==1, second half for gase==-1
+
+            hap.het <- data.table(Reduce(cbind,lapply(list(0:1, 1:0), function(i) Reduce(rbind,lapply(hap.f.p, function(j) paste(paste0(j,i, collapse=",")))))))
+
+            names(hap.het) <- paste0("g1.", c("p","m"))
+        }
+ 
+        ## get p(H|G)
+        if(length(u.hom) & length(u.het)) { ## merge first
+            DT <- cbind(hap.hom,hap.het)
+           
+        } else {
+            if(length(u.hom)){
+                DT <- hap.hom
+            } else {
+                DT <- hap.het
+            }
+        }
+
+        keep <- grep("^g",names(DT), value=T)
+        DT[, paste0("row.", keep):=lapply(keep, function(i) hap.p.no.gt2(s.M, M=M, get(i)))]
+        ## assign p=0 and replace when row.g !=0
+        DT[, paste0("p.", keep):=0]
+        for(k in keep){
+
+            ## sort to make sure DT.cond and row.k are in the same order
+            setkeyv(DT,paste0("row.",k))
+            DT[get(paste0("row.",k)) !=0, paste0("p.",k):= DT.cond[i %in% get(paste0("row.",k)), x]]
+        }
+
+        ## prepare lists for this set of individuals by GT rsnp
+        set.list <- lapply(unique(gt.r), function(i) list.help(i,gt.r,n.mat,DT,m))
+
+        ##select n and p and append n and p into 1 list respectively
+        n.all <- c(n.all, Reduce("c", lapply(set.list, `[[`, 1))) 
+        pH.all <- c(pH.all, Reduce("c", lapply(set.list, `[[`, 2)))
+
+    } 
+    ## n.all and pH.all need to be sorted as m
+
+    n.all <- n.all[names(m)]
+    pH.all <- pH.all[names(m)]
+
+    ## get entries with pH.all==0, samples with  genotype of rsnp is not compatible with reference panel
+    a <- sapply(pH.all, function(i) sum(i)==0)
+    ## remove those observations from gm, n.all and pH.all
+    if (any(a)){
+        gm <- gm[!a,]
+        n.all <- n.all[!a]
+        pH.all <- pH.all[-a]
+        if(nrow(gm[abs(g.ase)==1,])<min.ase.het){
+            return("Not enough individuals with ASE counts")
+        }
+    }
+    
+    ## NB side
+    yg <- data.table(y=unname(counts.g), rsnp=unname(unlist(rec.rsnp[, sapply(names(counts.g), function(i) grep(i,names(rec.rsnp))), with=F])))
+
+    
+    ## prepare list to return
+
+    l <- list(yg=yg, gm=gm, n=n.all,p=pH.all)
+    
+    return(l)
+  
+  
+}
+
+#' helper function to prepare list of inputs for stan.trecase.eff2
+#'
+#' This function allows you to format select n counts and  pH|G based on GT
+#' @param g genotype rsnp in scale 0,1,-1,2
+#' @param gt.r named numeric vector genotype for rsnp in scale 0,1,-1,2 for all samples, names are sample ID
+#' @param n.mat  matrix of n counts for each hap pair of fsnps concordant with reference panel (cols) and rows sample id
+#' @param DT data table with hap pairs of fsnp and rsnp by genotype rsnp, and their respective probabilibities, as made in stan.trecase.eff2
+#' @param m character vector with total ASE counts, names sample ID
+#' @keywords stan GT input rsnp
+#' @export
+#' @return list of list of 1) list of n counts, named by sample id, 2) list of p(H|G) named by sample id.
+#'
+#' list.help()
+
+list.help <- function(g,gt.r,n.mat,DT,m){
+    
+    sam.id <- names(gt.r)[gt.r==g]
+    if(g==0 | g==2){
+        n.sam <- lapply(sam.id, function(i) unname(n.mat[i,]))     
+        pH.sam <- lapply(sam.id, function(i) unname(unlist(DT[, paste0("p.g",g), with=F])))
+        
+    }
+    if(g==1 | g==-1){ ## swap haps of fsnps to avoid changing g.ase
+        mn.mat <- apply(n.mat[sam.id,,drop=F], 2, function(i) m[sam.id]-i)
+        if(!is.matrix(mn.mat)){
+            mn.mat <- matrix(mn.mat, nrow=1, dimnames=list("",names(mn.mat)))
+        }          
+        mat2 <- cbind(n.mat[sam.id,,drop=F],mn.mat)
+        n.sam <- lapply(1:nrow(mat2), function(i) unname(mat2[i,]))
+        p <- c("p.g1.p", "p.g1.m")
+        if(g==-1){
+            p <-p[length(p):1]
+        }       
+        pH.sam <- lapply(sam.id, function(i) unname(unlist(DT[, p, with=F])))
+    }
+
+    names(n.sam) <- names(pH.sam) <- sam.id
+    l <- list(n.sam, pH.sam)
+    
+   
+    return(l)
+}
+
+
+
 
 #' sub-function to deal with covariates when preparing input for stan 
 #'
@@ -261,7 +502,7 @@ in.neg.beta.prob.eff2 <- function(x,covar=1){
     s <- unname(sapply(x$n,length))
     L <- sum(s)
     ## p(H)
-    p.v <- do.call(c,x$p)
+    p.v <- do.call(c,unname(x$p))
  
     LL=list(N=N, A=nrow(x$gm), L=L, K=ncol(cov)-1, Y=x$yg$y, g=x$yg$rsnp, gase= x$gm$g.ase, m=x$gm$m, n=n.v, pH=p.v, s=s, cov=cov)
     
@@ -458,7 +699,7 @@ pH.no.gt <- function(M,v){
 #' @param y character vector with haplotype pairs (separeated by ",") to match in x (allowing swaps)
 #' @keywords stan pH unknown rsnp genotype
 #' @export
-#' @return character vector with names y and value the rownumber in M
+#' @return character vector with names y and value the rownumber in M, if no match row=0
 #'
 #' hap.p.no.gt()
 
@@ -472,6 +713,28 @@ hap.p.no.gt <- function(M,y){
     return(ul)
 }
 
+
+#' sub-function for formatting input for stan with no GT for rsnp, similar to hap.p.no.gt but avoids re-doing fisrt step (s.M)
+#'
+#' This function allows you to check whether hap.pairs (rownames of matrix M)  are in a input vector allowing for swap
+#' @param s.M named vector with names rownames(M) and value swapped rownames(M)
+#' @param M matrix  with hap pairs and GT prob for reference panel
+#' @param y character vector with haplotype pairs (separeated by ",") to match in x (allowing swaps)
+#' @keywords stan pH unknown rsnp genotype
+#' @export
+#' @return character vector with names y and value the rownumber in M, if no match row=0
+#'
+#' hap.p.no.gt2()
+
+hap.p.no.gt2 <- function(s.M, M,y){
+    
+    ## for each element of y get the row number in M either swap or unswap
+    l <- lapply(y, function(i) unique(c(which(names(s.M)==i) , which(s.M==i))))
+    l[which(lapply(l,length) ==0)] <- 0 ## replace  no matches with 0
+    names(l) <-  y
+    ul <- unlist(l)
+    return(ul)
+}
 
 
 #' sub-function for formatting input for stan with no GT for rsnp
@@ -503,9 +766,9 @@ sw.no.gt <-function(M,M.cond,DT,m.trim,i,j,n.col,m.col){
     ## select swaps for GT
     if(length(ex) == 0){ ## no rows to exclude
         hap.others <- which(M[,j]>0)
-        } else {
-            hap.others <- which(M[-DT.sub[ex], j] > 0)
-        }
+    } else {
+        hap.others <- which(M[-DT.sub[ex], j] > 0)
+    }
     s <-sapply(hap.others, function(i) length(i) >0) 
     if(length(s)>0){
         hap.others <- names(hap.others[which(s)])
@@ -569,103 +832,151 @@ stan.ase.no.gt <- function(M,l,m,ase=5, n=NULL,gf.comp=NULL, M.cond=NULL){
     }
     if(length(gf.comp) == 1){ ## error message from sel.ind.no.gt
         return(gf.comp)
+    } 
+    m.col <- grep("\\.m",colnames(m), value=T)
+    n.col <- grep("\\.n",colnames(m), value=T)
+    m.trim <- m[names(gf.comp),,drop=F] ## only inds with ASE info and GT compatible with ref panel
+    if(nchar(gf.comp[1])==1){ ## one fsnp, tested in first element of gf.comp
+        h.short <- lapply(l, function(i) i[names(gf.comp),])
+        m.counts <- m.trim[,m.col]
     } else {
-        m.col <- grep("\\.m",colnames(m), value=T)
-        n.col <- grep("\\.n",colnames(m), value=T)
-        m.trim <- m[names(gf.comp),] ## only inds with ASE info and GT compatible with ref panel
-        if(nchar(gf.comp[1])==1){ ## one fsnp, tested in first element of gf.comp
-            h.short <- lapply(l, function(i) i[names(gf.comp),])
-             m.counts <- m.trim[,m.col]
-        } else {
-            h.short <- lapply(l, function(i) apply(i[names(gf.comp),],1,paste,collapse=""))
-            m.counts <-  rowSums(m.trim[,m.col])
+        h.short <- lapply(l, function(i) apply(i[names(gf.comp),,drop=F],1,paste,collapse=""))
+        m.counts <-  rowSums(m.trim[,m.col, drop=F])
+    }
+    
+    ## get matrix p(H|GT fsnps)
+    if(is.null(M.cond)){
+        M.cond <- mat.col(M)
+    }
+    inp <- list(m=m.counts,n=list(), p=list(),g=list())
+    ## to make it faster: get inputs for unique(haplotypes) and then expand it to all samples
+    hap.s <- Reduce(cbind,h.short)
+    colnames(hap.s) <- c("hap1", "hap2")
+    hap.dt <- data.table(hap.s,keep.rownames=T)
+    u.haps <- unique(hap.s,MARGIN=1)
+    u.haps.dt <- data.table(u.haps)
+    ## add geno fsnps
+    if(length(m.col)==1) { ## 1 fsnp
+        u.haps.dt[,g.fsnps:=hap1+hap2]
+    } else {
+        u.haps.dt[,g.fsnps:=Map(add.geno,hap1,hap2)]
+    }
+    
+    ## get indexes for u.haps in hap.dt
+    if(nrow(u.haps.dt)==1){## general form doesnt work only accepts one value
+        u.haps.dt[, ind:= paste(which(hap.dt$hap1==hap1 & hap.dt$hap2==hap2), collapse=",")]
+        idx=as.numeric(unlist(strsplit(u.haps.dt$ind, ",")))
+    } else {
+            
+        u.haps.dt[, ind:=lapply(1:nrow(u.haps.dt), function(i) which(hap.dt$hap1==hap1[i] & hap.dt$hap2==hap2[i]))]
+    }    
+    for(i in 1:nrow(u.haps.dt)) {
+        p.v <- c()
+        if(nrow(u.haps.dt)>1){
+            idx <- unlist(u.haps.dt$ind[i]) ## index individuals with same hap combinations
         }
         
-        ## get matrix p(H|GT fsnps)
-        if(is.null(M.cond)){
-            M.cond <- mat.col(M)
-            }
-        inp <- list(m=m.counts,n=list(), p=list(),g=list())
-        ## to make it faster: get inputs for unique(haplotypes) and then expand it to all samples
-        hap.s <- Reduce(cbind,h.short)
-        colnames(hap.s) <- c("hap1", "hap2")
-        hap.dt <- data.table(hap.s,keep.rownames=T)
-        u.haps <- unique(hap.s,MARGIN=1)
-        u.haps.dt <- data.table(u.haps)
-        ## add geno fsnps
-        u.haps.dt[,g.fsnps:=Map(add.geno,hap1,hap2)]
-        ## get indexes for u.haps in hap.s
-        u.haps.dt[, ind:=lapply(1:nrow(u.haps.dt), function(i) which(hap.dt$hap1==hap1[i] & hap.dt$hap2==hap2[i]))]
-        for(i in 1:length(u.haps.dt)){
-            p.v <- c()
-            idx <- unlist(u.haps.dt$ind[i]) ## index individuals with same hap combinations
-            n.v.mat <- matrix(,nrow=length(idx), ncol=0)  ## for all individuals with same haps, each row is the n for each individual, cols will be all possible haps. ncol=length(p.v)=length(r.v)
-            r.v <- c()  ## to collect GT of rsnp in scale 0,1,-1,2 with 1= 0|1 and -1=1|0
-            ## add rsnp, any GT to each hap
-            z <- lapply(u.haps[i,], function(j) paste0(j,0:1))
-            ## get all possible haps pairs for hap1 and hap2 (fsnps and rsnp)
-            h1.2 <- as.vector(outer(z$hap1,z$hap2, paste, sep=","))
-            ## get rows in M compatible with obs haps
-            rows.comp <- hap.p.no.gt(M, y=h1.2)
-            ## get GT for h1.2
-            GT.ob <- as.vector(outer(z$hap1,z$hap2, add.geno)) ## to keep same order as h1.2
-            ## summarize h1.2, with genotype with rows compatible with haps in M into 1 object
-            sum.gt <- data.table(GT.ob,h1.2,rows.comp)
-            ## get pop entries compatibles with GT
-            g.col <- which(GT.ob %in% colnames(M))                      
-            ## select entries in sum.gt with GT compatible with reference panel, some rSNP GT may not be compatible
-            sum.gt <- sum.gt[g.col,]
-            ## in each col work out obs hap if present and swaps
-            ## get GT fsnps
-            gt.f <- u.haps.dt$g.fsnps[i]
-            for(j in unique(sum.gt$GT.ob)) {
-                ## check if obs hap
-                if(sum(sum.gt[GT.ob==j,rows.comp]) !=0){ ## at least one obs hap
-                    r <- which(sum.gt[GT.ob==j,rows.comp] !=0)  ## get the one(s) in ref panel
-                    pH1 <- M.cond[sum.gt[GT.ob==j,rows.comp][r] , as.character(gt.f)] ## get pH for obs hap, pop hap1|hap2 may be swapped relative to mine but p(H) is the same
+        n.v.mat <- matrix(,nrow=length(idx), ncol=0)  ## for all individuals with same haps, each row is the n for each individual, cols will be all possible haps. ncol=length(p.v)=length(r.v)
+        r.v <- c()  ## to collect GT of rsnp in scale 0,1,-1,2 with 1= 0|1 and -1=1|0
+        ## add rsnp, any GT to each hap
+        z <- lapply(u.haps[i,], function(j) paste0(j,0:1))
+        ## get all possible haps pairs for hap1 and hap2 (fsnps and rsnp)
+        h1.2 <- as.vector(outer(z$hap1,z$hap2, paste, sep=","))
+        ## get rows in M compatible with obs haps
+        rows.comp <- hap.p.no.gt(M, y=h1.2)
+        ## get GT for h1.2
+        GT.ob <- as.vector(outer(z$hap1,z$hap2, add.geno)) ## to keep same order as h1.2
+        ## summarize h1.2, with genotype with rows compatible with haps in M into 1 object
+        sum.gt <- data.table(GT.ob,h1.2,rows.comp)
+        ## get pop entries compatibles with GT
+        g.col <- which(GT.ob %in% colnames(M))                      
+        ## select entries in sum.gt with GT compatible with reference panel, some rSNP GT may not be compatible
+        sum.gt <- sum.gt[g.col,]
+        ## in each col work out obs hap if present and swaps
+        ## get GT fsnps
+        gt.f <- u.haps.dt$g.fsnps[i]
+        for(j in unique(sum.gt$GT.ob)) {
+            ## check if obs hap
+            if(sum(sum.gt[GT.ob==j,rows.comp]) !=0) { ## at least one obs hap
+                r <- which(sum.gt[GT.ob==j,rows.comp] !=0)  ## get the one(s) in ref panel
+                pH1 <- M.cond[sum.gt[GT.ob==j,rows.comp][r] , as.character(gt.f)] ## get pH for obs hap, pop hap1|hap2 may be swapped relative to mine but p(H) is the same
+                if(nrow(n.v.mat)>1){
                     n.v.mat <- cbind(n.v.mat, replicate(length(pH1), rowSums(m.trim[idx,n.col,drop=FALSE])))
-                    
-                    ##n.v <- c(n.v, rep(sum(m.trim[i,n.col]), length(pH1))) ## repeat n for each possible g of rsnp, n is the same.
-                    p.v <- c(p.v,unname(pH1))
-                    ## get GT by hap1,2 for rsnp to code for -1 and 1
-                    if(length(sum.gt[GT.ob==j,h1.2][r])==1){## only 1 rsnp GT
-                        gt.r <- as.numeric(unname(sapply(strsplit(sum.gt[GT.ob==j,h1.2][r], ","), function(i) substr(i, nchar(i), nchar(i)))))
-                        if(sum(gt.r)!=1){
-                            gt.r <- sum(gt.r)
-                        } else {
-                            h1.r <- sum(gt.r)-gt.r[1]
-                            gt.r <- ifelse(h1.r==0, -1, 1)
-                        }
-                        
-                    } else { ## each row is 1 possible GT for rsnp
-                        gt.r <- data.table(apply(sapply(strsplit(sum.gt[GT.ob==j,h1.2], ","), function(i) substr(i, nchar(i), nchar(i))), 1, as.numeric))
-                        gt.r$gt <- rowSums(gt.r)
-                        gt.r[, rec:=ifelse(gt-V1==0,-1,1)]
-                        gt.r <- gt.r$rec
+                } else {
+                    n.v.mat <- cbind(n.v.mat, t(replicate(length(pH1), rowSums(m.trim[idx,n.col,drop=FALSE]))))
+                }
+                
+                ##n.v <- c(n.v, rep(sum(m.trim[i,n.col]), length(pH1))) ## repeat n for each possible g of rsnp, n is the same.
+                p.v <- c(p.v,unname(pH1))
+                ## get GT by hap1,2 for rsnp to code for -1 and 1
+                if(length(sum.gt[GT.ob==j,h1.2][r])==1){## only 1 rsnp GT
+                    gt.r <- as.numeric(unname(sapply(strsplit(sum.gt[GT.ob==j,h1.2][r], ","), function(i) substr(i, nchar(i), nchar(i)))))
+                    if(sum(gt.r)!=1){
+                        gt.r <- sum(gt.r)
+                    } else {
+                        h1.r <- sum(gt.r)-gt.r[1]
+                        gt.r <- ifelse(h1.r==0, -1, 1)
                     }
                     
-                    r.v <- unname(c(r.v,gt.r))
-                }                          
-                ## check if they are other haps compatible with GT of fsnps
-                in.stan1 <- sw.no.gt(M, M.cond, DT=sum.gt, m.trim,i=idx,j=j,n.col,m.col)
-     
+                } else { ## each row is 1 possible GT for rsnp
+                    gt.r <- data.table(apply(sapply(strsplit(sum.gt[GT.ob==j,h1.2], ","), function(i) substr(i, nchar(i), nchar(i))), 1, as.numeric))
+                    gt.r$gt <- rowSums(gt.r)
+                    gt.r[, rec:=ifelse(gt-V1==0,-1,1)]
+                    gt.r <- gt.r$rec
+                }
+                
+                r.v <- unname(c(r.v,gt.r))
+            }                          
+            ## check if there are other haps compatible with GT of fsnps
+            in.stan1 <- sw.no.gt(M, M.cond, DT=sum.gt, m.trim,i=idx,j=j,n.col,m.col)
+            if(all(!sapply(in.stan1, is.null))) { 
+                
                 p.v <- c(p.v,in.stan1$p)
                 ##n.v <- c(n.v,in.stan1$n)
                 r.v <- c(r.v,in.stan1$r)
-                n.v.mat <- cbind(n.v.mat,in.stan1$n)
+                if(nrow(n.v.mat)==1){
+                    n.v.mat <- cbind(n.v.mat, in.stan1$n)
+                } else {
+                    if(!is.matrix(in.stan1$n)){ ## make matrix if numeric
+                        
+                        n.v.mat <- cbind(n.v.mat,matrix(in.stan1$n, ncol=1,dimnames=list(names(in.stan1$n))))
+                    } else {
+                        n.v.mat <- cbind(n.v.mat,in.stan1$n)
+                    }
+                    
+                }
             }
-
-
-             ##print("i, n.v"); print(i) ; print(n.v)   
-            inp$n[idx] <- lapply(1:nrow(n.v.mat), function(i) n.v.mat[i,])
-            inp$p[idx] <- rep(list(p.v), length(idx))
-            inp$g[idx] <- rep(list(r.v), length(idx))
             
-        } 
-        return(inp)
-    }           
+        }
+
+
+    ##print("i, n.v"); print(i) ; print(n.v)   
+    inp$n[idx] <- lapply(1:nrow(n.v.mat), function(i) unname(n.v.mat[i,]))
+    inp$p[idx] <- rep(list(p.v), length(idx))
+    inp$g[idx] <- rep(list(r.v), length(idx))
+    ##print(i)
+    }
+    
+    return(inp)        
 }
-        
+
+
+#' Function for making matrix of P(H snps|GT snps) (colSums = 1) starting from matrix p(H)
+#'
+#' conditional matrix by cols, divides each col of M by its sum
+#' @param M matrix
+#' @keywords matrix conditional
+#' @export
+#' @return matrix
+#' mat.cond()
+
+mat.cond <- function(M){
+    
+    v=1/colSums(M)
+    diag <- as(Diagonal(length(v), v), "sparseMatrix")
+    tmp <- M %*% diag
+    return(tmp)
+}
        
 #' Function for making matrix of P(h|GT fSNPs) (colSums = 1) starting from matrix of h vs GT (fsnps+rsnp)  
 #'
@@ -677,9 +988,33 @@ stan.ase.no.gt <- function(M,l,m,ase=5, n=NULL,gf.comp=NULL, M.cond=NULL){
 #' mat.col()
 
 mat.col <- function(M){
+    x <- as.data.table(summary(M))
+    x[, r.names:=row.names(M)[i]]
+    x[,c.names:=colnames(M)[j]]
+    n <- nchar(x$c.names[1])
+    x[,newcols:=as.character(substr(c.names,1, n-1))]
+    x <- x[,.(value=sum(x)),by=c("r.names","newcols")]
+#######  make sparse matrix, get index for newcols (j)
+    ## sort by newcols so duplicated cols are together and then get number of repetitions using rle, but need to keep col.order to get back right order before return
+    col.order <- unique(x$newcols)
+    setkey(x,newcols,r.names)
+    index.j <- rle(x$newcols)
+    x[, j:=rep(1:length(index.j$value), index.j$length)]
+    ## need to reorder x as in M, r.names same order as rownames(M), and colnames as col.order
+    tmp <- sparseMatrix(i=1:nrow(x), j=x$j, x=x$value, dimnames=list(x$r.names, index.j$value))
+    tmp <- tmp[match(rownames(M),rownames(tmp)), match(col.order,colnames(tmp))]
+    v=1/colSums(tmp)
+    diag <- as(Diagonal(length(v), v), "sparseMatrix")
+    tmp <- tmp %*% diag
+    return(tmp)
+}
+
+## old version, slower
+mat.col2 <- function(M){
     GTf <- sort(sapply(colnames(M), function(i) substr(i, 1, (nchar(i)-1) )))
-    tmp <- matrix(0,nrow=nrow(M),ncol=length(unique(GTf)), dimnames=list(rownames(M),unique(GTf)))
-    for(i in unique(GTf)){
+    u=unique(GTf)
+    tmp <- Matrix(0,nrow=nrow(M),ncol=length(u), dimnames=list(rownames(M),u))
+    for(i in u){
         n <- names(GTf)[GTf==i]
         if(length(n)==1){
             tmp[,i] <- M[,n]
@@ -692,6 +1027,7 @@ mat.col <- function(M){
     return(tmp)
 }
 
+
 #' function for formatting input for stan for FULL  model with no GT for rsnp
 #'
 #' This function allows you to format input for stan FULL MODEL per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual
@@ -701,49 +1037,65 @@ mat.col <- function(M){
 #' @param m matrix with ase counts per fsnp, output from tot.ase_counts
 #' @param ase ase cut-off default is 5 counts, trecase default 5
 #' @param n minimun number of individuals  with counts >=ase, trease default 5.
+#' @param rna whether to allow for missing values in GT, used when genotyping by rna, defaults to NULL
 #' @keywords stan input ase unknown rsnp genotype
 #' @export
 #' @return list of 2 elements for samples with sufficient ase counts: 1) NB, list  with first element total counts for gene and second element list of p(GT of rsnp|GT fsnp)>0 for GT rsnp 0,1,2. 2) ase: list with ase counts total ase counts (m). 2) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 3) list of vectors p: each vector with p for each haplotype corresponding to n, 4) list of vectors g: each vector g for the rsnp.
 #'
 #' stan.full.no.gt()
 
-stan.full.no.gt <- function(counts, M,l,m,ase=5, n=5){
+stan.full.no.gt <- function(counts, M,l,m,ase=5, n=5,rna=NULL){
     ## get GT for fsnps in samples with sufficient ASE at least in n individuals and compatible with ref panel
     gf.comp <- sel.ind.no.gt(M,l,m,ase,n)
-    if(length(gf.comp) == 1){ ## error message from sel.ind.no.gt
-        return(gf.comp)
-    } else {
-        ## get input for NB, consider all individuals irrespective of ASE counts
-        ## get matrix p(H|GT fsnps)
-        M.cond <- mat.col(M)
-        ## make vector with geno for the corresponding hap.pair from rownames(M) for reference panel
-        gt.rf <- Reduce(add.geno, lapply(1:2, function(i) sapply(strsplit(rownames(M), ","), `[[`, i)))
-        ## get genotypes of fsnps for all samples
-        gf.all <- sel.ind.no.gt(M,l,m,ase=0,n=0)
-        ## for each gf.comp get p(gf+rsnp | gf)
-        u.gf.all <- unique(gf.all)
-        p.g <- lapply(u.gf.all, function(i) {
-            w <-  which(M.cond[,i]!=0)
-            tmp <- M.cond[w,i]
-            names(tmp) <- substr(gt.rf[w],nchar(gt.rf[1]), nchar(gt.rf[1])) ## last character from gt.rf is geno rsnp
-            tmp <- tapply(tmp, names(tmp), sum) ## add elements in vector with same genotype
-            return(tmp)
-            })
-        names(p.g) <- u.gf.all
-        ## assign p.g to each sample in gf.all
-        p.g.all <- rep(list(p.g[[1]]), length(gf.all)) ## start with first element and replace
-        ##replace
+    if(is.null(rna)){
+        if(is.null(names(gf.comp))) { ## error message from sel.ind.no.gt
+            return(gf.comp)
+        }   
+    }    
+    ## get input for NB, consider all individuals irrespective of ASE counts
+    ## get matrix p(H|GT fsnps)
+    M.cond <- mat.col(M)
+    ## make vector with geno for the corresponding hap.pair from rownames(M) for reference panel
+    gt.rf <- Reduce(add.geno, lapply(1:2, function(i) sapply(strsplit(rownames(M), ","), `[[`, i)))
+    ## get genotypes of fsnps for all samples
+    gf.all <- sel.ind.no.gt(M,l,m,ase=0,n=0)
+    if(all(gf.all =="GT fsnps is not compatible with Ref panel" )) { ## error message from sel.ind.no.gt for all samples
+        return(gf.all)
+    }
+    if(any(gf.all =="GT fsnps is not compatible with Ref panel" )) {## error message from sel.ind.no.gt for all samples
+        gf.all <- gf.all[gf.all !="GT fsnps is not compatible with Ref panel"]
+    }
+    
+    ## for each gf.all get p(gf+rsnp | gf)
+    u.gf.all <- as.character(unique(gf.all))
+    p.g <- lapply(u.gf.all, function(i) {
+        w <-  which(M.cond[,i]!=0)
+        tmp <- M.cond[w,i]
+        names(tmp) <- substr(gt.rf[w],nchar(gt.rf[1]), nchar(gt.rf[1])) ## last character from gt.rf is geno rsnp
+        tmp <- tapply(tmp, names(tmp), sum) ## add elements in vector with same genotype
+        return(tmp)
+    })
+    names(p.g) <- u.gf.all
+    ## assign p.g to each sample in gf.all
+    p.g.comp <- rep(list(p.g[[1]]), length(gf.all)) ## start with first element and replace
+    ##replace if necessary:
+    if(length(u.gf.all) >1){
         for(i in 2:length(u.gf.all)){
             w <- unname(which(gf.all == u.gf.all[i]))
-            p.g.all[w] <- rep(list(p.g[[i]]), length(w))
+            p.g.comp[w] <- rep(list(p.g[[i]]), length(w))
         }
-        ##  total counts for relevant samples
-        y <- counts[,names(gf.all),with=F]
-        ## get input for ASE
-        ase.in <- stan.ase.no.gt(M,l,m,ase,n,gf.comp,M.cond)
-        
-        return(list(NB=list(counts=y,p.g=p.g.all),ase=ase.in))              
     }
+    
+    ##  total counts for relevant samples
+    y <- counts[,names(gf.all),with=F]
+    
+    ## get input for ASE
+    if(is.null(names(gf.comp))){ ## for rna only, to allow  NB side to be returned
+        ase.in="No ASE for these samples, likely homo fsnps"
+    } else {
+        ase.in <- stan.ase.no.gt(M,l,m,ase,n,gf.comp,M.cond)
+    }
+    return(list(NB=list(counts=y,p.g=p.g.comp),ase=ase.in))              
 }
 
 
@@ -763,36 +1115,29 @@ stan.full.no.gt <- function(counts, M,l,m,ase=5, n=5){
 #' sel.ind.no.gt()
 
 sel.ind.no.gt <- function(M,l,m,ase,n){
- m.col <- grep("\\.m",colnames(m), value=T)
-    if(class(m[,m.col])=="numeric"){
-        m.counts <- m[,m.col]
-        } else {
-            m.counts <-  rowSums(m[,m.col])
-        }
-    # select ASE input when total ase counts are above threshold
+    m.col <- grep("\\.m",colnames(m), value=T)
+    m.counts <-  rowSums(m[,m.col, drop=FALSE])
+    
+    ## select ASE input when total ase counts are above threshold
     A <- which(m.counts>=ase)
     if(length(A)<n){ ## at least n individuals with sufficient ase counts (unknown genotype)
-           return("Not enough individuals with ASE counts")
+        return("Not enough individuals with ASE counts")
+    } 
+    g <- Reduce("+",l)
+    g.obs <-apply(g[A,,drop=F],1,paste,collapse="")    
+    names(g.obs)=names(A)
+    ## get GT for fsnps in ref panel
+    gt.fsnps <- sapply(colnames(M), function(i) substr(i,1,nchar(i)-1))
+    ## select inds that have GT fsnps compatible with ref panel
+    g.comp <- g.obs[g.obs %in% gt.fsnps]
+    if(length(g.comp) == 0 ){
+        return("GT fsnps is not compatible with Ref panel")
     } else {
-        g <- Reduce("+",l)
-        if(class(g[A,])=="numeric"){                  
-            g.obs <- g[A,]
-            ##h.short <- lapply(l, function(i) i[A,])
-        } else {
-            g.obs <-apply(g[A,],1,paste,collapse="")
-            ## h.short <- lapply(l, function(i) apply(i[A,],1,paste,collapse=""))
-        }
-        ## get GT for fsnps in ref panel
-        gt.fsnps <- sapply(colnames(M), function(i) substr(i,1,nchar(i)-1))
-        ## select inds that have GT fsnps compatible with ref panel
-        g.comp <- g.obs[g.obs %in% gt.fsnps]
-        if(length(g.comp) == 0 ){
-            return("GT fsnps is not compatible with Ref panel")
-        } else {
-            return(g.comp)
-        }
+        return(g.comp)
     }
+    
 }
+
 
 
 #' prepare input for stan neg.beta.noGT.rsnp.priors.eff.stan
@@ -876,6 +1221,408 @@ in.noGT.test.eff <- function(x,covar=1){
     LL=list(N=N, G=sum(s.NB), L=L, K=ncol(cov)-1, M=length(v), Y=unlist(x$NB$counts),sNB=s.NB, gNB=g.NB, pNB=p.NB, gase= gase, m=x$ase$m, n=n.v, pH=p.v, s=s, v=v, cov=cov)
     return(LL)
 }
+
+
+
+#' function for formatting input for trecase stan no GT, wrapping p.hap.pair and stan.neg.beta.prob.eff to avoid creating big objects when returning from p.hap.pair
+#'
+#' This function allows you to format input for stan per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual. Starts from refernce panel input, calculates p(H|G) and then prepares stan input for full model
+#' @param counts.g data table 1 row with total gene counts of gene per sample
+#' @param rp.1r numeric of haplotypes from reference panel for 1 rsnp
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with sufficient ase counts, trease default 5
+#' @keywords stan input
+#' @export
+#' @return list of 1) data table with total counts (y) and genotype rsnp (g) 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n. The first haplotype pair corresponds to {h1,h2}, the "true" one.
+#'
+#' stan.trecase.noGT.eff()
+
+stan.trecase.noGT.eff <- function(counts.g, rp.1r, rp.f, f.ase, c.ase , min.ase=5, min.ase.n=5){
+  
+    rp2 <- t(rbind(rp.f,rp.1r)) ## get ref panel fsnps and 1 rsnp in the same format I have functions from simulations
+    
+    ## calculate P(H|G) ref panel for the rsnp                   
+    tmp <- p.hap.pair.s(rp2) 
+    
+    ## get haps for fsnps 
+    h.samp <- hap_sam(x=f.ase)
+
+    if(nrow(h.samp[[1]])==1) {
+        h.samp <- lapply(h.samp,t)
+    }
+    
+    h.samp = lapply(h.samp, function(x) {row.names(x)= rownames(c.ase); return(x)})
+    
+    tmp <- stan.full.no.gt(counts.g , M=tmp, l=h.samp, m=c.ase, ase=min.ase, n=min.ase.n)
+    
+    return(tmp)
+    
+    
+}
+
+#' function for formatting input for trecase stan no GT and missing values, prepares inputs only dependent on fsnps to feed stan.trecase.rna.noGT.eff
+#'
+#' This function allows you to format input for stan related to fsnps only
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with suffiicent ase counts
+#' @param stan.f list output of fsnp.prep, 1) mis.sample, 2) u.f, 3) f.comb
+#' @keywords stan input
+#' @export
+#' @return list of 1) m= numeric with total ase counts. 2) n= list of matrices: each matrix has n.counts, rows samples, cols haplotypes compatible with the reference panel. 3) NB= list of data tables, each data table summarizing samples with the haplotypes compatible with RP, to make NB input, 4) f.omb, list relating names on n list and NB list to fsnps used for making haplotypes
+#'
+#' fsnp.prep2()
+
+fsnp.prep2 <- function(rp.f, f.ase, c.ase , min.ase=5, min.ase.n=5){ 
+    
+    ##  group individuals with no missing GT for the same fsnps ####
+    stan.f <- fsnp.prep(rp.f, f.ase, c.ase , min.ase, min.ase.n)
+    
+    if(is.character(stan.f)){return(stan.f)}
+    
+    mis.sample <- stan.f$mis.sample
+    u.f <- stan.f$u.f
+    f.comb <- stan.f$f.comb
+    
+    ##  index samples with GT info for same fsnps
+    index <- apply(u.f,2, function(i) apply(mis.sample, 2, function(j) sum(j==i)==nrow(f.ase)))
+    rownames(index) <-  gsub("_GT","", rownames(index))
+
+    ## check if I have sufficient individuals with sufficient counts before proceeding
+
+    m.col <- grep("\\.m",colnames(c.ase), value=T)
+    m.counts <-  rowSums(c.ase[,m.col, drop=FALSE])
+    
+    ## select ASE input when total ase counts are above threshold
+    A <- which(m.counts>=min.ase)
+    if(length(A)<min.ase.n){ ## at least n individuals with sufficient ase counts
+           return("Not enough individuals with ASE counts")
+    } 
+
+##### based on f.comb, u.f and index prepare inputs with no missing values for stan.fsnp.noGT.eff
+
+
+    fsnp.in <- lapply(1:length(f.comb), function(i) {
+        samp <- rownames(index[index[,i],,drop=FALSE])
+        cols.fase <- unlist(lapply(samp, grep, x=names(f.ase), value=TRUE))
+        fsnps <- f.comb[[i]]
+        cols.case <- unlist(lapply(fsnps, grep, x=colnames(c.ase), value=TRUE))
+        ## for each entry I ignore checking for ase, it is only a subset of individuals and it was checked globally above
+        tmp <- stan.fsnp.noGT.eff(rp.f=rp.f[fsnps,,drop=FALSE], f.ase=f.ase[id %in% fsnps, cols.fase, with=FALSE], c.ase=c.ase[samp, cols.case,drop=FALSE], min.ase.n=0, NB="yes")
+        return(tmp)
+    })
+    names(fsnp.in) <- names(f.comb)
+    
+    ## remove character elements (GT not compatible with ref panel)
+    w <- sapply(fsnp.in, is.character)
+
+    if(all(w)){
+        return(fsnp.in[[1]])
+    }
+    
+    if(any(w)){
+        fsnp.in <- fsnp.in[!w]        
+    }
+
+    ## prepare outputs
+
+    ## m counts
+    m.out <- Reduce(c,lapply(fsnp.in, `[[`, "m"))
+    ## remove NULL, same inds may have NB but not m
+    m.out[sapply(m.out, is.null)] <- NULL
+
+    ## n counts, list names link to fsnp used by f.comb
+    n.out <- lapply(fsnp.in, `[[`,"n")
+    ## remove NULL, same inds may have NB but not m
+    n.out[sapply(n.out, is.null)] <- NULL
+
+    ## NB side
+    nb <- lapply(fsnp.in, `[[`,"NB")
+
+    ## use index to recode local ind with sample name
+
+    nb2 <- lapply(1:length(nb), function(i) {
+        glob <- index[,names(nb)[i]]
+        loc <- which(glob)
+        names(loc) <- 1:length(loc)
+        ## replace ind with names(glob)
+        nb[[i]]$glob <-sapply(nb[[i]]$ind, function(j){
+            ## get loc from j (j=names(loc))
+            j <- unlist(j)
+            if(is.character(j) & any(nchar(j) >1)){
+                j <- unlist(strsplit(j, ","))
+            }
+            
+            tmp <- names(glob)[loc[j]]
+            return(paste(tmp, collapse=","))
+        })
+        nb[[i]][, ind:=glob]
+        nb[[i]][, glob:=NULL]
+        
+        return(nb[[i]])
+    })
+    names(nb2) <- names(nb)
+
+    ## ## on global ind, merge DTs if have same hap1 and hap2, NO THEY are using different fsnps
+    ## ## check if DTs have the same hap.p
+    
+    ## hap.p <- lapply(nb, function(i) i$hap.p)
+    ## u.p <- unique(hap.p)
+    ## if(length(u.p)<length(hap.p)){
+    ##     nb2 <- list()
+    ##     for(i in 1:length(u.gf)){
+    ##         tmp <- sapply(hap.p, identical, u.p[[i]])
+    ##         if(sum(tmp)>=2){ ## merge
+    ##             tmp2 <- Reduce((function() {counter=1
+    ##                 function(x,y) {
+    ##                     d <- merge(x,y,by=c("hap1","hap2","g.fsnps","hap.p"), suffixes=c(counter:(counter+1)))
+    ##                     counter=counter+2
+    ##                     return(d)
+    ##                 }}) () , nb[tmp])
+    ##             ## merge ind1,..., into ind
+    ##             ind.col <- grep("ind", names(tmp2), value=T)
+    ##             tmp2 <- unite(tmp2, col="ind", ind.col, sep=",",remove=T)         
+    ##             nb2[[i]] <- tmp2
+    ##         } else {
+    ##             w <- which(tmp)
+    ##             nb2[[i]] <- nb[[w]]
+    ##         }
+            
+    ##         nb2[[i]][,hap.p:=NULL]                    
+
+    ##     }
+    ## }
+
+
+    ## if(exists("nb2")){
+    ##     nb <- nb2
+    ## }
+
+    ## ## sort m.out with the same order as rownames from n.out matrices
+    ## row.od <- unlist(lapply(n.out, rownames))
+    ## m.out <- m.out[row.od]
+    
+ return(list(m=m.out, n=n.out, NB=nb2, f.comb=f.comb))
+
+    
+}
+
+#' helper function for formatting input for trecase stan no GT and missing values, prepares inputs only dependent on fsnps to feed stan.trecase.rna.noGT.eff
+#'
+#' This function allows you to format input for stan related to fsnps only
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with suffiicent ase counts
+#' @keywords stan input
+#' @export
+#' @return list of 1) mis.sample, logical matrix, for each sample indicates which fnsps are missing (TRUE) 2) u.f, matrix with unique cols from mis.samples, 3) f.comb list to relate u.f with name of snps, each element is a vector with name colname in u.f, and values names of fsnps that are not missing.
+#'
+#' fsnp.prep()
+
+fsnp.prep <- function(rp.f, f.ase, c.ase , min.ase=5, min.ase.n=5){ 
+    
+#######  group individuals with no missing GT for the same fsnps ####
+    ## get GT info
+    GT <- f.ase[,grep("_GT$",names(f.ase)),with=F]
+
+    ## identify missing GT by sample, MISSING==TRUE
+    mis.sample <- apply(GT,2, function(i) i %in% "./.")
+    if(!is.matrix(mis.sample)){
+        cols <- names(mis.sample)
+        mis.sample <- matrix(mis.sample, nrow=1)
+        colnames(mis.sample) <- cols
+    }
+    
+    rownames(mis.sample) <- f.ase$id
+  
+
+    ## remove samples with all missing data
+    mis.sample <- mis.sample[,colSums(mis.sample)< nrow(GT), drop=F]
+
+    if(ncol(mis.sample) < min.ase.n) return(paste("STOP: genotype information in less than" ,min.ase.n , "samples"))
+
+    ## get unique combinations of fsnps
+    u.f <- t(unique(t(mis.sample)))
+    
+    ## get the names of fsnps for each combination in u.f
+    f.comb <- apply(u.f,2,function(i) names(i[which(!i)]))
+
+    ## make f.comb list when is matrix (only one configuration)
+
+    if(is.matrix(f.comb)){
+        f.comb <- list(c(f.comb))
+        names(f.comb) <- colnames(u.f)
+    }
+
+    return(list(mis.sample=mis.sample, u.f=u.f, f.comb=f.comb))
+}
+
+
+
+
+#' function for formatting input for trecase stan no GT and missing values, wrapping p.hap.pair and stan.neg.beta.prob.eff to avoid creating big objects when returning from p.hap.pair
+#'
+#' This function allows you to format input for stan per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual. Starts from refernce panel input, calculates p(H|G) and then prepares stan input for full model
+#' @param counts.g data table 1 row with total gene counts of gene per sample
+#' @param rp.1r numeric of haplotypes from reference panel for 1 rsnp
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with suffiicent ase counts
+#' @param stan.f list with information for fsnps per sample, output from snp.prep
+#' @keywords stan input
+#' @export
+#' @return list of 1) data table with total counts (y) and genotype rsnp (g) 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n. The first haplotype pair corresponds to {h1,h2}, the "true" one.
+#'
+#' stan.trecase.rna.noGT.eff()
+
+stan.trecase.rna.noGT.eff <- function(counts.g, rp.1r, rp.f, f.ase, c.ase , min.ase=5, min.ase.n=5, stan.f){ 
+    
+#######  group individuals with no missing GT for the same fsnps ####
+    mis.sample <- stan.f$mis.sample
+    u.f <- stan.f$u.f
+    f.comb <- stan.f$f.comb
+    
+    rp.comb <- lapply(1:length(f.comb), function(i) t(rbind(rp.f[rownames(rp.f) %in% f.comb[[i]],,drop=F] ,rp.1r))) ## get ref panel fsnps and 1 rsnp in the same format I have functions from simulations
+    
+    ## calculate P(H|G) ref panel for the rsnp, according to available fsnps             
+    tmp <- lapply(rp.comb, p.hap.pair.s)
+    
+    ## get haps for fsnps and rsnp, need to index samples with GT for same fsnps
+    index <- apply(u.f,2, function(i) apply(mis.sample, 2, function(j) sum(j==i)==nrow(f.ase)))
+    
+    h.samp <- lapply(1:ncol(index), function(i) {
+        x=f.ase[id %in% rownames(u.f)[(!u.f[,colnames(index)[i]])]  ,names(index[,i])[index[,i]],with=F]
+        l=hap_sam(x)
+        if(nrow(x)==nrow(l[[1]])){ ## l needs to be transposed relative to x
+            l <- lapply(l,t)
+        }
+        return(l)
+    })
+    
+    ##get sample names for samples used for each combination of fsnps to aid in preparing inputs
+    samps <- lapply(1:ncol(index), function(i) gsub("_GT","", names(index[,i])[index[,i]]))
+    
+    h.samp = lapply(1:length(h.samp), function(x) lapply(h.samp[[x]], function(i) {row.names(i)= samps[[x]]; return(i)}))
+
+    
+    ## prepare inputs, use n=0 because was tested globally above, select samples and snps for each haplotype
+    tmp1 <- lapply(1:length(h.samp), function(i) stan.full.no.gt(counts=counts.g[,samps[[i]],with=F], M=tmp[[i]], l=h.samp[[i]], m=c.ase[samps[[i]], unlist(lapply(f.comb[[i]], function(j) grep(j, colnames(c.ase)))) ,drop=F], ase=min.ase, n=0,rna="yes"))
+    
+    if(length(tmp1)==1){ ## remove error message return for all samples
+        return(tmp1)
+    }
+    ## Remove elements from tmp1 with mo information
+    tmp1 <- tmp1[sapply(tmp1,function(i) class(i)!="character")]
+    
+    ## combine inputs for stan into one list, group NB side and ASE side
+    ## NB side
+    counts.all <- Reduce(cbind,lapply(tmp1, function(x) x$NB$counts))
+    p.g.all <- Reduce(c, lapply(tmp1, function(x) x$NB$p.g))
+    
+    ## ASE side, remove elements from tmp1 with no ase info
+    tm1 <- tmp1[sapply(tmp1,function(i) class(i$ase)!="character")]
+    ase.all <- lapply(1:4, function(i) Reduce(c, lapply(tm1, function(x) x$ase[[i]])))
+    names(ase.all) <- c("m","n","p","g")                  
+    tmp2 <- list(NB=list(counts=counts.all, p.g= p.g.all), ase=ase.all)
+    return(tmp2)
+    
+    
+}
+
+#' function for formatting input for trecase stan no GT and missing values, wrapping p.hap.pair and stan.neg.beta.prob.eff to avoid creating big objects when returning from p.hap.pair, v2
+#'
+#' This function allows you to format input for stan per individual: constructs list of vectors with counts/ase/p(H|G) for all haplotypes concordant with "g", each vector one individual. Starts from refernce panel input, calculates p(H|G) and then prepares stan input for full model
+#' @param counts.g data table 1 row with total gene counts of gene per sample
+#' @param rp.1r numeric of haplotypes from reference panel for 1 rsnp
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with suffiicent ase counts
+#' @param stan.f list with information for fsnps per sample, output from snp.prep
+#' @keywords stan input
+#' @export
+#' @return list of 1) data table with total counts (y) and genotype rsnp (g) 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n. The first haplotype pair corresponds to {h1,h2}, the "true" one.
+#'
+#' stan.trecase.rna.noGT.eff2()
+
+stan.trecase.rna.noGT.eff2 <- function(counts.g, rp.1r, rp.f, stan.f) { 
+    
+#######  group individuals with no missing GT for the same fsnps ####
+    m <- stan.f$m
+    n <- stan.f$n
+    NB <- stan.f$NB
+    f.comb <- stan.f$f.comb
+
+    ## Prepare inputs for stan.rsnp.noGT.eff by fsnps
+    nb <- list()
+    n.list <- list()
+    p.list <- list()
+    g.list <- list()
+    
+    for( i in 1:length(f.comb)) {
+        NB.sub <- NB[names(NB)==names(f.comb)[i]]
+        n.sub <- n[names(n)==names(f.comb)[i]]
+        
+        if(length(NB.sub) | length(n.sub)){        
+            rp.f2 <- rp.f[f.comb[[i]],]
+            rp2 <- t(rbind(rp.f2,rp.1r))
+            M <- p.hap.pair.s(rp2)
+            M.cond <- mat.col(M)
+        }
+        
+        if(length(NB.sub)){ 
+            nb[[i]] <- stan.nb(counts.g,M,M.cond,NB=NB.sub[[1]])
+          
+        }
+        if(length(n.sub)){
+            ## make named vector with names rownames(M) and value swapped rownames(M) once
+            row.split <- unlist(strsplit(rownames(M), ","))
+            row.2 <- row.split[1:length(row.split) %%2 == 0]  ## take even entries
+            row.1 <- row.split[1:length(row.split) %%2 ==1] ## odd entries
+            s.M <- paste(row.2, row.1, sep=",")  ## invert haplotypes
+            names(s.M) <-  rownames(M)
+            
+            tmp <- Reduce(c, lapply(n.sub[[1]], function(j) stan.ase(M, M.cond,s.M, n.mat=j)))  ## simplify
+            n.list <- c(n.list, Reduce(c, lapply(tmp, `[`, "n")))
+            p.list <- c(p.list, Reduce(c, lapply(tmp, `[`, "p")))
+            g.list <- c(g.list, Reduce(c, lapply(tmp, `[`, "g")))
+           
+        } 
+        
+    }
+    
+    ## Arrange lists to return ##
+    
+    ## NB remove null elements
+    nb[sapply(nb, is.null)] <- NULL
+    tot.counts <- Reduce(cbind,lapply(nb, function(i) i$counts))
+    p.g <- Reduce(c, lapply(nb, function(i) i$p.g))
+
+    NB <- list(counts=tot.counts, p.g=p.g)
+
+    ## ASE ##
+    n.list <- Reduce(c,n.list)
+    p.list <- Reduce(c, p.list) 
+    g.list <- Reduce(c, g.list)
+
+    ASE <- list(m=m, n=n.list[names(m)], p=p.list[names(m)], g=g.list[names(m)])
+
+    return(list(NB=NB, ase=ASE))
+}
+    
+
+        
+    
                    
 #' Fix GT for rsnp on negative binomial input only for QC purposes in stan neg.beta.noGT.rsnp.priors.eff.stan
 #'
@@ -910,6 +1657,9 @@ fix.noGT <- function(x,y){
 in.neg.beta.noGT.eff2 <- function(x,covar=1){
     
     N <- length(x$NB$counts) # number of individuals for NB
+    if(is.matrix(covar)){  ## make sure covar has the same samples as x$NB$counts
+      covar = covar[names(x$NB$counts), ]
+    }
     cov <- stan.cov(N,covar)  ## format covariates for stan
     ## g.NB
     g.NB <- as.numeric(unlist(lapply(x$NB$p.g, names))) ## genotypes are in names, vector with all
@@ -925,7 +1675,7 @@ in.neg.beta.noGT.eff2 <- function(x,covar=1){
     s <- unname(sapply(x$ase$n,length))
     L <- sum(s)
     #p(H)
-    p.v <- unlist(x$ase$p)
+    p.v <- unlist(unname(x$ase$p))
     ##gase
     gase <- unname(unlist(x$ase$g))
    
@@ -965,4 +1715,515 @@ unload.ddl <- function(model){
             dyn.unload(dll[['path']])
         }
     }
+}
+
+
+################################################################################################################
+#################### New input formulation for stan #############################################
+
+#' function for formatting input for trecase stan no GT, deals with haps, n counts and m counts of fSNPs to streamline computation
+#'
+#' This function allows you to format input for stan per individual: precomputes m counts and n counts for each individual based on haplotypes compatible with genotypes of the fsnps based on the reference panel
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param f.ase data.table with GT and ASE for fSNPs, output from gt.as, same fsnps in same order as rp.f
+#' @param c.ase output from tot.ase for the rsnp id
+#' @param min.ase ase cut-off default is 5 counts, trecase default 5
+#' @param min.ase.n minimun number of individuals with sufficient ase counts, trease default 5
+#' @param NB, whether to return NB element of output, defalts to "yes" as it is required for noGT, use "no" for GT input preparation
+#' @keywords stan input fsnp
+#' @export
+#' @return list of 1) m= numeric with total ase counts. 2) n= list of matrices: each matrix has n.counts, rows samples, cols haplotypes compatible with the reference panel. 3) NB= data table summarizing samples with the haplotypes compatible with RP, to make NB input, 
+#'
+#' stan.fsnp.noGT.eff()
+
+stan.fsnp.noGT.eff <- function(rp.f, f.ase, c.ase , NB="yes", min.ase=5, min.ase.n=5){
+
+    ## get haps for fsnps 
+    h.samp <- hap_sam2(x=f.ase, w=rownames(c.ase))
+    
+    ## get GT for fsnps
+    g <- Reduce("+",h.samp)
+    g <-apply(g[,,drop=F],1,paste,collapse="")  
+    ## Select samples with GT compatible with reference panel
+
+    ## calculate P(H|G) ref panel for the fsnps,
+    M <- p.hap.pair.s(t(rp.f))
+
+    g.all.comp <- g[g %in% colnames(M)]
+    if(length(g.all.comp) == 0 ){
+        return("GT fsnps is not compatible with Ref panel")
+    }
+    ## NB side: ALL INDIVIDUALS with GT compatible with RP, get haps
+    if(NB=="yes"){
+        if(nchar(g.all.comp[1])==1){ ## one fsnp, tested in first element of g.all.comp
+            h.short.all <- lapply(h.samp, function(i) i[names(g.all.comp),])
+        } else {
+            h.short.all <- lapply(h.samp, function(i) apply(i[names(g.all.comp),,drop=FALSE],1,paste,collapse=""))
+        }
+        
+        ## summary by unique(haplotype) indicating in which samples are found and in the row of M that the hap pair is found
+        u.haps.all <- sum.g(h.short.all)
+    }
+    
+
+    ## ASE side: samples with sufficient ASE at least in n individuals and compatible with ref panel
+    
+    ## get GT for fsnps in samples with sufficient ASE at least in n individuals and compatible with ref panel
+    m.col <- grep("\\.m",colnames(c.ase), value=T)
+    m.counts <-  rowSums(c.ase[,m.col, drop=FALSE])
+
+    ## keep only samples with GT compatible with RP
+
+    m.counts <- m.counts[names(g.all.comp)]
+    
+    ## select ASE input when total ase counts are above threshold
+    A <- which(m.counts>=min.ase)
+    if(length(A)<min.ase.n){ ## at least n individuals with sufficient ase counts (unknown genotype)
+        if(NB=="yes"){
+            return(list(NB=u.haps.all))
+        } else {
+            return("Not enough individuals with ASE counts")
+        }
+        
+    } 
+    g.comp <- g[names(A)]
+    #g.obs <-apply(g[A,,drop=F],1,paste,collapse="")    
+    ##names(g.obs)=names(A)
+    ## select inds that have GT fsnps compatible with ref panel
+    ##g.comp <- g.obs[g.obs %in% colnames(M)]
+    if(!length(g.comp) ){
+         if(NB=="yes"){
+            return(list(NB=u.haps.all))
+        } else {
+            return("GT fsnps is not compatible with Ref panel")
+        }
+         
+    }
+    ## proceed to calculate m.counts: only inds with ASE info and GT compatible with ref panel
+    m.trim <- c.ase[names(g.comp),,drop=FALSE] 
+    if(nchar(g.comp[1])==1){ ## one fsnp, tested in first element of g.comp
+        h.short <- lapply(h.samp, function(i) i[names(g.comp),])
+        m.counts <- m.trim[,m.col]
+        if(!length(names(m.counts))){ names(m.counts) <- names(g.comp)}
+    } else {
+        h.short <- lapply(h.samp, function(i) apply(i[names(g.comp),,drop=FALSE],1,paste,collapse=""))
+        m.counts <-  rowSums(m.trim[,m.col,drop=FALSE])
+    }
+
+    ## Prepare list with m.counts, n.counts and the corresponding hap pair
+    inp <- list(m=m.counts,n=list())
+
+    ## to make it faster: get inputs for unique(haplotypes) and then expand it to all samples
+    u.haps.dt <-sum.haps(h.short)
+        
+    ## get indexes for u.haps in hap.dt
+    if(nrow(u.haps.dt)==1){## general form doesnt work only accepts one value
+        idx=as.numeric(unlist(strsplit(u.haps.dt$ind, ",")))
+    } 
+    ## add hap1.2 col to u.haps.dt
+    u.haps.dt[, hap1.2:=paste(hap1,hap2,sep=",")]
+    ## add row number that corresponds to hap1.2 in M, if misssing row=0
+    u.haps.dt[, row.M:=hap.p.no.gt(M,hap1.2)]
+    for(i in 1:nrow(u.haps.dt)) {
+        if(nrow(u.haps.dt)>1){
+            idx <- unlist(u.haps.dt$ind[i]) ## index individuals with same hap combinations
+        }
+        ## get matrix for n.counts, for all individuals with same haps, each row is the n for each individual, cols will be all possible haps.
+        n.v.mat <- matrix(,nrow=length(idx), ncol=0)  ## for all individuals with same haps, each row is the n for each individual, cols will be all possible haps.
+        n.col <- grep("\\.n",colnames(c.ase), value=T)
+        if(u.haps.dt$row.M[i] >0){ ## obs hap in ref panel   
+            n.v.mat <- cbind(n.v.mat, rowSums(m.trim[idx,n.col,drop=FALSE]))
+            colnames(n.v.mat) <- u.haps.dt$hap1.2[i]
+            ex <- u.haps.dt$row.M[i] ## haplotype to exclude from further analysis
+        }       
+        ## get all other possible haplotypes compatible with genotype of fsnps from ref panel
+        if(exists("ex")){
+            hap.others <- names(which( M[-ex,which(colnames(M) %in% u.haps.dt$g.fsnps[i])]>0))
+        } else {
+            hap.others <- names(which( M[,which(colnames(M) %in% u.haps.dt$g.fsnps[i])]>0))
+        }
+        ## check if they are any
+        if(length(hap.others)){
+            ##n.v <- list()
+            hap1 <- u.haps.dt$hap1[i]
+            hap.x <- lapply(hap.others, function(i) unlist(strsplit(i,","))[1])  ## hap 1
+            for(k in 1:length(hap.x)){
+                ##get the differences between hapx hap1 to swap ase
+                dif <- which(unlist(strsplit(hap1,split=""))!=unlist(strsplit(hap.x[[k]],split="")))
+                ## get ase
+                n.v.mat <-cbind(n.v.mat, rowSums(m.trim[idx,c(n.col[-dif],m.col[dif]), drop=FALSE]) - rowSums(m.trim[idx,n.col[dif], drop=FALSE]))
+
+            }
+        }
+        colnames(n.v.mat) <- c(colnames(n.v.mat)[1:(ncol(n.v.mat)-length(hap.others))],hap.others)
+        inp$n[[i]] <- n.v.mat    
+    }
+    if(NB=="yes"){
+            inp$NB <- u.haps.all
+    }
+    ## some matrices in inp$n may have same col names but in different order, I will merge them as it wont affect assigning haplotype probabilities when adding rSNP
+
+    ## only applies if more than 2 cols
+    len <- lapply(inp$n, ncol)
+    max.len <- max(unlist(len))
+
+    if(max.len >1){       
+        n.names <- lapply(inp$n, colnames)
+
+    ## compare elements same number of cols, from 2 onwards
+    ## when I can merge them I merge them
+    ## keep record of merged matrices so I can delete them at the end so indices are not affected during the loop
+        index <- c()
+        ##colnames(index) <- c("j", "match")
+        for(i in 2:max.len){
+            w <- which(len==i)
+            ## pair wise comparisons
+            ## get j when cols have the same elements regardless order
+            
+            for (j in w){
+                l <- lapply(sapply(n.names[w[-c(1:which(w==j))]], FUN=intersect, n.names[[j]]) , length) == i
+                if(any(l)){
+                    ## get relevant matrices
+                    inx <- c(j ,w[-c(1:which(w==j))][l])
+                    ## sort cols same as the first one
+                    for(k in 2:length(inx)){
+                        inp$n[[inx[k]]] <- inp$n[[inx[k]]][,n.names[[j]], drop=F]
+                        ## rbind
+                        inp$n[[j]] <- rbind(inp$n[[j]], inp$n[[inx[k]]])                   
+                    }
+                    ## sort rownames
+                    inp$n[[j]] <- inp$n[[j]][names(m.counts)[which(names(m.counts) %in% rownames(inp$n[[j]]))], ]
+                    index <- c(index, inx[2:length(inx)])
+
+                    
+                }
+            }
+        }
+    
+        
+        ## remove redundant matrices
+        inp$n[index] <- NULL    
+    }
+    
+    return(inp)
+}
+
+
+
+#' helper function to summarise the haplotypes of fnsps across individuals
+#'
+#' This function allows you to format summarise the haplotypes of fnsps across individuals
+#' @param h.short list with 2 elements, first character named vector with haplotype 1 for fsnps, if 3 fsps each element will look as "010", etc. names are sample ID. Second element corresponds to hap2
+#' @keywords summary fsnps
+#' @export
+#' @return data table with columns: hap1, hap2, g.fsnps (GT fsnp), ind: row number from h.short for the individuals that have that hap combination, hap1.2, hap1 and hap2 separated by ",", row.M row number in which that hap combination is found in input M
+#'
+#' sum.haps()
+
+sum.haps <- function(h.short){
+ ## summary by unique(haplotype) indicating in which samples are found
+    hap.s <- Reduce(cbind,h.short)
+    colnames(hap.s) <- c("hap1", "hap2")
+    hap.dt <- data.table(hap.s,keep.rownames=T)
+    u.haps <- unique(hap.s,MARGIN=1)
+    u.haps.dt <- data.table(u.haps)
+    ## add geno fsnps
+    if(nchar(h.short[[1]][1])==1) { ## 1 fsnp
+        u.haps.dt[,g.fsnps:=hap1+hap2]
+    } else {
+        u.haps.dt[,g.fsnps:=Map(add.geno,hap1,hap2)]
+    }
+    
+    ## get indexes for u.haps in hap.dt
+    if(nrow(u.haps.dt)==1){## general form doesnt work only accepts one value
+        u.haps.dt[, ind:= paste(which(hap.dt$hap1==hap1 & hap.dt$hap2==hap2), collapse=",")]        
+    } else {            
+        u.haps.dt[, ind:=lapply(1:nrow(u.haps.dt), function(i) which(hap.dt$hap1==hap1[i] & hap.dt$hap2==hap2[i]))]
+    }
+    return(u.haps.dt)
+    
+    ## add hap1.2 col to u.haps.dt
+    #u.haps.dt[, hap1.2:=paste(hap1,hap2,sep=",")]
+    ## add row number that corresponds to hap1.2 in M, if misssing row=0
+    #u.haps.dt[, row.M:=hap.p.no.gt(M,hap1.2)]
+   
+}
+
+#' helper function to summarise genotypes of fnsps across individuals
+#'
+#' This function allows you to format summarise the genotypes of fnsps across individuals
+#' @param h.short list with 2 elements, first character named vector with haplotype 1 for fsnps, if 3 fsps each element will look as "010", etc. names are sample ID. Second element corresponds to hap2
+#' @keywords summary fsnps
+#' @export
+#' @return data table with columns: hap1, hap2, g.fsnps (GT fsnp), ind: row number from h.short for the individuals that have that hap combination, hap1.2, hap1 and hap2 separated by ",", row.M row number in which that hap combination is found in input M
+#'
+#' sum.g()
+
+sum.g <- function(h.short){
+    ## summary by unique(haplotype) indicating in which samples are found
+    if(is.numeric(h.short[[1]])){
+        g.s <- Reduce("+",h.short)
+    } else {
+         g.s <- Reduce(add.geno,h.short)
+    }
+    g.m <- matrix(g.s, ncol=1, dimnames=list(names(g.s), "g.fsnps"))
+    g.dt <- data.table(g.m, keep.rownames=T)
+    u.g <- unique(g.m,MARGIN=1)
+    u.g.dt <- data.table(u.g)
+    
+    ## get indexes for u.haps in hap.dt
+    if(nrow(u.g.dt)==1){## general form doesnt work only accepts one value
+        u.g.dt[, ind:= paste(which(g.dt$g.fsnps==g.fsnps), collapse=",")]        
+    } else {            
+        u.g.dt[, ind:=lapply(1:nrow(u.g.dt), function(i) which(g.dt$g.fsnps==g.fsnps[i]))]
+    }
+    return(u.g.dt)
+    
+   
+}
+
+
+#' function for formatting input for trecase stan no GT, deals with genotype of rsnp and p(Grsnp|G fsnp) & p(H|G) to make stan input
+#'
+#' This function allows you to format input for stan per individual: using m and n counts for each individual it adds the genotype of rsnp to prepare stan input
+#' @param counts.g DT of total gene counts, colnames sample names
+#' @param rp.f matrix of haplotypes from reference panel for fsnps, rows=snps, cols samples from reference panel
+#' @param rp.1r matrix of phased GT for rsnp from reference panel, same format as for rp.f
+#' @param stan.f list output of stan.fsnp.noGT.eff with m counts, n counts and p(H|G)
+#' @keywords stan input rsnp
+#' @export
+#' @return list of stan input: NB: list of 1) data table with total counts (y) and list p.g, each element a named vector with p(genotypes) rsnp, names 0,1,2. ASE: 2) data.table with data for ASE: genotype rsnp (g) and total ase counts (m). 3) list of vectors n: each vector with ase n.counts compatible with each haplotype pair for 1 individual. 4) list of vectors p: each vector with p for each haplotype corresponding to n.
+#'
+#' stan.rsnp.noGT.eff()
+
+stan.rsnp.noGT.eff <- function(counts.g, rp.f, rp.1r, stan.f) {
+ 
+    rp2 <- t(rbind(rp.f,rp.1r)) ## get ref panel fsnps and 1 rsnp in the same format I have functions from simulations
+    
+    ## calculate P(H)ref panel for the fsnps+rsnp                   
+    M.all <- p.hap.pair.s(h=rp2) 
+    ## get input for NB, consider all individuals irrespective of ASE counts
+    ## get matrix p(H|GT fsnps)
+    M.all.cond <- mat.col(M.all)
+
+    ## make data table with no 0 entries in M.all to get genotype of rsnp for a given hap.pair
+    gt.rf <- data.table(summary(M.all))
+    setkey(gt.rf,i)    
+
+    ## for each stan.f$NB$g.fsnps get p(gf+rsnp| gfsnp)
+    u <- unique(as.character(stan.f$NB$g.fsnps))
+    p.g <- lapply(u,  function(i) {
+        w <-  which(M.all.cond[,i]!=0)
+        tmp <- M.all.cond[w,i]
+        ## for each hap pair in names(tmp) get their corresponding genotype (colname with no-0 entry)
+        gt.rf2 <- colnames(M.all)[gt.rf[i %in% w,j]]
+        
+        names(tmp) <- substr(gt.rf2,nchar(gt.rf2[1]), nchar(gt.rf2[1])) ## last character from gt.rf is geno rsnp
+        tmp <- tapply(tmp, names(tmp), sum) ## add elements in vector with same genotype
+        return(tmp)
+    })
+    names(p.g) <-u
+
+    
+    ## assign p.g to each sample
+    u.haps.all <- stan.f$NB
+    if(nrow(stan.f$NB)==1){## only one genotype
+        
+        samp.ind <- sort(unlist(strsplit(stan.f$NB$ind, ",")))
+        
+        p.g.comp <- rep(list(p.g[[1]]), length(samp.ind))
+    } else {
+        samp.ind <- sort(unlist(u.haps.all[, ind]))
+        p.g.comp <- rep(list(p.g[[1]]), length(samp.ind)) ## start with first element and replace
+        for(i in seq_along(names(p.g))) {
+            ind <- sort(unlist(stan.f$NB[g.fsnps==names(p.g)[i],ind]))
+            p.g.comp[ind] <- rep(list(p.g[[i]]),length(ind))
+        }
+    }
+    
+    ##  total counts for relevant samples
+    ## names in counts include gene_id, need to shift samp.ind by 1
+    y <- counts.g[,(samp.ind+1),with=F]
+
+    
+    ##ASE
+    n.all <- list()
+    g.all <- list()
+    pH.all <- list()
+    ## make named vector with names rownames(M) and value swapped rownames(M)
+    row.split <- unlist(strsplit(rownames(M.all), ","))
+    row.2 <- row.split[1:length(row.split) %%2 == 0]  ## take even entries
+    row.1 <- row.split[1:length(row.split) %%2 ==1] ## odd entries
+    s.M <- paste(row.2, row.1, sep=",")  ## invert haplotypes
+    names(s.M) <-  rownames(M.all)
+
+    for(i in 1:length(stan.f$n)) {
+        n.mat <- stan.f$n[[i]]
+        ## get hap pairs for fsnps and potentially any rsnp
+        hap.f.p <- lapply(colnames(n.mat), function(i) unlist(strsplit(i,",")))
+        hap.r.p <- lapply(hap.f.p, function(i) sapply(i, function(j) paste0(j,0:1)))
+        hap.r.p <- lapply(hap.r.p, function(i) as.vector(outer(i[,1], i[,2], paste, sep=",")))
+        
+        ## select hap.p compatible with RP
+        
+        rows.comp <- lapply(hap.r.p, function(i) {
+            tmp <- hap.p.no.gt2(s.M, M=M.all, i)
+            tmp <- tmp[tmp>0]
+            return(tmp)
+        })
+        
+
+        ## get g.rsnp for haps compatible with RP
+        h.rsnp <- lapply(rows.comp, function(i) sapply(names(i), function(j) as.numeric(sapply(strsplit(j, ","), function(k) substr(k, nchar(k), nchar(k))))))
+        
+        g.rsnp <- lapply(h.rsnp, function(i) {
+            tmp <- colSums(i)
+            inv <- i[1,tmp==1]==1 ## get hap 1 when rsnp is het
+            tmp[names(tmp) %in% names(inv)[inv]] <- -1 ## if hap1 is 1, genotype is -1 (hap rsnp 1|0)
+            return(tmp)
+            })
+        
+        ## get p(H|G fsnps) for each hap pair in rows.comp
+        pH.G <- lapply(rows.comp, function(i) rowSums(M.all.cond[i,,drop=F]))
+
+        ## prepare lists to return
+
+        n.mat2 <- Reduce(cbind, lapply(1:ncol(n.mat), function(i) matrix(rep(n.mat[,i], length(g.rsnp[[i]])),ncol=length(g.rsnp[[i]]))))
+        n.list <- lapply(1:nrow(n.mat), function(i) n.mat2[i,])
+        g.list <- lapply(1:nrow(n.mat), function(i) unname(Reduce(c,g.rsnp)))
+        pH.list <- lapply(1:nrow(n.mat), function(i) unname(Reduce(c,pH.G)))
+        names(n.list) <- names(g.list) <- names(pH.list) <- rownames(n.mat)
+
+        ## append
+
+        n.all <- c(n.all, n.list)
+        g.all <- c(g.all, g.list)
+        pH.all <- c(pH.all, pH.list)
+    }
+    
+    NB <- list(counts=y,p.g=p.g.comp)
+
+    ## need to sort n.all, pH.all and g.all as in stan.f$m
+    m=stan.f$m
+    ASE <- list(m=m,n=n.all[names(m)], p=pH.all[names(m)], g=g.all[names(m)])
+
+    return(list(NB=NB, ase=ASE))
+    
+    
+}
+
+           
+
+
+#' sub-function for formatting input for trecase stan no GT, deals with genotype of rsnp and p(Grsnp|G fsnp) & p(H|G) to make stan input for negative binomial
+#'
+#' This function allows you to format input for stan Nb per individual: adapted from stan.rsnp.noGT.eff
+#' @param counts.g DT of total gene counts, colnames sample names
+#' @param M  matrix of haplotypes from reference panel for fsnps and rsnp, rows=hap.pairs, cols GT
+#' @param M.cond  matrix haplotypes from reference panel, rows as M, cols GT, colsums=1
+#' @param NB data table with summarize information for neg binom side, output from fsnp.prep or stan.fsnp.noGT
+#' @keywords stan input rsnp
+#' @export
+#' 
+#' @return list of stan input: list of 1) counts: data table with total counts  and 2) list p.g with p(genotype) rsnp per sample.
+#' 
+#' stan.nb()
+#' 
+
+stan.nb <- function(counts.g, M, M.cond, NB){
+
+    ## make data table with no 0 entries in M to get genotype of rsnp for a given hap.pair
+    gt.rf <- data.table(summary(M))
+    setkey(gt.rf,i)    
+
+    ## for each stan.f$NB$g.fsnps get p(gf+rsnp| gfsnp)
+    u <- as.character(unique(NB$g.fsnps))
+    p.g <- lapply(u,  function(i) {
+        w <-  which(M.cond[,i]!=0)
+        tmp <- M.cond[w,i]
+        ## for each hap pair in names(tmp) get their corresponding genotype (colname with no-0 entry)
+        gt.rf2 <- colnames(M)[gt.rf[i %in% w,j]]
+        
+        names(tmp) <- substr(gt.rf2,nchar(gt.rf2[1]), nchar(gt.rf2[1])) ## last character from gt.rf is geno rsnp
+        tmp <- tapply(tmp, names(tmp), sum) ## add elements in vector with same genotype
+        return(tmp)
+    })
+    names(p.g) <-u
+
+
+    ## assign p.g to each sample, 
+    samp.id <- lapply(1:nrow(NB), function(i) sort(unlist(strsplit(NB$ind[i], ","))))
+   
+    p.g.comp <- lapply(1:length(samp.id), function(i) rep(list(p.g[[i]]), length(samp.id[[i]])) )
+
+    p.g.comp <- Reduce(c,p.g.comp)  ## remove nested list
+
+    ##  total counts for relevant samples, in same order as p.g.comp
+   
+    y <- counts.g[,unlist(samp.id),with=F]
+
+
+    nb <- list(counts=y,p.g=p.g.comp)
+
+    return(nb)
+}
+        
+
+
+#' sub-function for formatting input for trecase stan no GT, deals with genotype of rsnp and p(Grsnp|G fsnp) & p(H|G) to make stan input for ASE
+#'
+#' This function allows you to format input for stan ASE per individual: adapted from stan.rsnp.noGT.eff
+#' @param M  matrix of haplotypes from reference panel for fsnps and rsnp, rows=hap.pairs, cols GT
+#' @param M.cond  matrix haplotypes from reference panel, rows as M, cols GT, colsums=1
+#' @param s.M named vector with names rownames(M) and value swapped rownames(M), to identify swaps, done in stan.rsnp.noGT.eff 
+#' @param n.mat matrix with hap for fsnps and ase counts, output from fsnp.prep or stan.fsnp.noGT
+#' @keywords stan input rsnp
+#' @export
+#' 
+#' @return list of stan input: list of 1) list with vectors of n.counts, 2) list of vectors of  p(H(f+r)|Gf) , 3) list of vectors of possible genotype rsnp in scale 0,1,-1,2, each vector one sample
+#' 
+#' stan.ase()
+#' 
+
+stan.ase <- function(M, M.cond, s.M, n.mat) {
+    
+    ## get hap pairs for fsnps and potentially any rsnp
+    hap.f.p <- lapply(colnames(n.mat), function(i) unlist(strsplit(i,",")))
+    hap.r.p <- lapply(hap.f.p, function(i) sapply(i, function(j) paste0(j,0:1)))
+    hap.r.p <- lapply(hap.r.p, function(i) as.vector(outer(i[,1], i[,2], paste, sep=",")))
+    
+    ## select hap.p compatible with RP
+        
+    rows.comp <- lapply(hap.r.p, function(i) {
+        tmp <- hap.p.no.gt2(s.M, M=M, i)
+        tmp <- tmp[tmp>0]
+        return(tmp)
+    })
+        
+
+    ## get g.rsnp for haps compatible with RP
+    h.rsnp <- lapply(rows.comp, function(i) sapply(names(i), function(j) as.numeric(sapply(strsplit(j, ","), function(k) substr(k, nchar(k), nchar(k))))))
+    
+    g.rsnp <- lapply(h.rsnp, function(i) {
+        tmp <- colSums(i)
+        inv <- i[1,tmp==1]==1 ## get hap 1 when rsnp is het
+        tmp[names(tmp) %in% names(inv)[inv]] <- -1 ## if hap1 is 1, genotype is -1 (hap rsnp 1|0)
+        return(tmp)
+    })
+        
+    ## get p(H|G fsnps) for each hap pair in rows.comp
+    pH.G <- lapply(rows.comp, function(i) rowSums(M.cond[i,,drop=F]))
+
+    ## prepare lists to return
+
+    n.mat2 <- Reduce(cbind, lapply(1:ncol(n.mat), function(i) matrix(rep(n.mat[,i], length(g.rsnp[[i]])),ncol=length(g.rsnp[[i]]))))
+    n.list <- lapply(1:nrow(n.mat), function(i) n.mat2[i,])
+    g.list <- lapply(1:nrow(n.mat), function(i) unname(Reduce(c,g.rsnp)))
+    pH.list <- lapply(1:nrow(n.mat), function(i) unname(Reduce(c,pH.G)))
+    names(n.list) <- names(g.list) <- names(pH.list) <- rownames(n.mat)
+
+    
+    ASE <- list(n=n.list, p=pH.list, g=g.list)
+
+    return(list(ASE))
 }

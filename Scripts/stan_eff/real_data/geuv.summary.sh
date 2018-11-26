@@ -2,7 +2,7 @@
 ## Apply bayesian trecase to GEUV data of EUR ancestry
 ########################################################
 
-module load samtools/1.4.1
+## module load samtools-1.4-gcc-5.4.0-derfxbk
 
 ###### functions ######
 . /home/ev250/Cincinatti/Functions/various.sh
@@ -104,6 +104,9 @@ tab2vcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE for.AS.tab
 
 mergevcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE 22 22
 
+## rm intermediate files: not done
+
+
 ## QC vcf file, make sure GT is in the right format: inputs.R
 ## make sure counts and vcf have the same samples:inputs.R
 
@@ -122,34 +125,127 @@ vcf4rasqual /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE 22 22 ASE.allsamples.vcf.gz 
 
 ## Expanding into chr22.R, in inputs.R I could make a list of genes to test based on chr and level of expression so I can then make an array variable that goes through that list to run eQTL.
 
-chr22.R
-Error in dyn.load(libLFile) : 
-  unable to load shared object '/tmp/RtmpvDL73J/file4ff67a20d.so':
-  `maximal number of DLLs reached...
+#########################################################################################
+################## Discrepancy between phasing on ref panel and GEUVADIS DNA-download ###
+#########################################################################################
 
-## options: remove libraries before running stan
-## remove dll stan files as I go along: https://github.com/stan-dev/rstan/issues/448
+## We were recommended to use 1000GP phase3 so I now select samples from ref panel.
 
-dso_filename = mod@dso@dso_filename
-  loaded_dlls = getLoadedDLLs()
+## /home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3 has the following files for chr22:
+chr22.bcf.gz  chr22.bcf.gz.csi  chr22.hap.gz  chr22.legend.gz  chr22.samples
 
-dso_filename = model@dso@dso_filename
-  loaded_dlls = getLoadedDLLs()
-  if (dso_filename %in% names(loaded_dlls)) {
-    message("Unloading DLL for model dso ", dso_filename)
-    model.dll = loaded_dlls[[dso_filename]][['path']]
-    dyn.unload(model.dll)
-  } else {
-    message("No loaded DLL for model dso ", dso_filename)
-  }
+## chr22.bcf.gz doesnt have alt allele, open the file in R, add it and re-make bcf, for some reason the convertion from hap/sam/legend files does not add some of the basic fields. 
 
-  loaded_dlls = getLoadedDLLs()
-  loaded_dlls = loaded_dlls[str_detect(names(loaded_dlls), '^file')]
-  loaded_dlls <- loaded_dlls[grep("^file", names(loaded_dlls),value=T)]
-  if (length(loaded_dlls) > 10) {
-    for (dll in head(loaded_dlls, -10)) {
-      message("Unloading DLL ", dll[['name']], ": ", dll[['path']])
-      dyn.unload(dll[['path']])
-    }
-  }
-  message("DLL Count = ", length(getLoadedDLLs()), ": [", str_c(names(loaded_dlls), collapse = ","), "]")
+## Get samples of interest: some arent in vcf, --force-samples exclude them w/o error message
+
+## get header but remove everything except GT
+bcftools view  -S /mrc-bsu/scratch/ev250/EGEUV1/sample_info/GBR.sample.id /home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/chr22.bcf.gz --force-samples -h > /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.vcf
+
+## get body with GT to open in R
+bcftools view -S /mrc-bsu/scratch/ev250/EGEUV1/sample_info/GBR.sample.id /home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/chr22.bcf.gz --force-samples -Ou | bcftools query -f "%CHROM %POS %ID %REF %ALT %QUAL %FILTER %AC %AN[ %GT]\n" > /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.txt
+
+## fixed ALT allele and select SNPs only, also phaser requires FILTER column in vcf to be PASS, changes in /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/real_data/QTL_input/fix.alt.R
+
+## append vcf body to new header
+cat /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3body.txt >> /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.vcf
+
+## compress and index
+bgzip -c /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.vcf > /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.vcf.gz
+tabix -p vcf /mrc-bsu/scratch/ev250/EGEUV1/DNA/chr22.1KGP_P3.vcf.gz
+
+## Run phaser.array.sh and GBR22.sh, each job one sample, chr22
+## re run pipeline
+##
+
+## I compared lm. gt and nogt for chr22. We changed the prior for noGT to be bj~N(0,0.2) and re-run. All seems ok, analysis in comp.out.chr22.GT.noGT.lm.R
+
+## Next steps:
+
+##1) run noGT with genotypes called from RNA
+
+##2) improve input preparation, need to use bedtools to count only once reads overlapping more than one snp.
+
+
+############################################################################################
+## 1) ##### Genotyping from RNA #########
+############################################################################################
+
+## start with chr22: tried all chrs but calling variants is too slow. Better by chr.
+## run in call_var_rna.chr22.sh: /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.vcf, calls variants, changed samples names and added genomic annotations.
+
+## extract FORMAT/INFO fields for chr 22 to look at variant calling in R
+
+bcftools query -f  '%CHROM\t%POS\t%REF\t%ALT\t%QUAL\t%DP\t%ANN[\t%GT\t%DP\t%AD\t%RPB\t%MQ\t%VDB\t%MQB\t%BQB]\n' /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.vcf > /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.txt
+
+bcftools query -f  '%CHROM\t%POS\t%REF\t%ALT\t%QUAL\t%DP\t%ANN[\t%GT\t%DP\t%AD\t%RPB\t%MQ\t%VDB\t%MQB\t%BQB]\n' /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.vcf -H | head -1 > /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.header.txt
+
+## compare RNA genotyping with DNA genotyping in /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/real_data/call_var/RNA.genotyping.QC.R:
+
+# 1) Select variants called in DNA and use DP per sample >=10
+
+# 2) Prepare vcf for shapeit.
+
+## header with no INFO and FORMAT GT only,  exclude samples not in DNA (RNA.genotyping.QC.R)
+
+## needed to do this order of commands: -s didnt work in annotate and bcftools view adds AC and AN in info and then filled not sure how when added vcf body. To avoid it use -I
+
+bcftools view -s ^HG00104,HG00124,HG00134,HG00135,HG00152,HG00156,HG00247,HG00249 /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20.vcf -h -I | bcftools annotate  -x INFO,^FORMAT/GT > /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20_GTonly.vcf
+
+## body saved in /RNA.genotyping.QC.R
+
+## append vcf body to new header
+cat /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20_GTonly.txt >>  /mrc-bsu/scratch/ev250/EGEUV1/quant/call_vars/b37/HG96_2215_chr22_q20_GTonly.vcf
+
+
+## shapeit: run in rna_chr22.sh
+
+## need to exclude missing values as I get error (more than 10% of variants missing in any sample). Try phasing each sample after removing missing values. I tried:
+
+## bcftools view -s HG00096 -e 'GT="./."' HG96_2215_chr22_q20_GTonly.vcf -I
+
+## but some GT=0/0 were missing, not sure why. sorted with grep, see rna_chr22.sh
+
+
+## phaser: re-use phaser.array.sh with GBR22.sh
+
+#####
+## Prepare inputs for eQTL analysis
+####################################
+
+################################################################
+## extract GT information from each sample and merge it with ASE information
+
+vcf4AS /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/RNA 22 22
+
+## format in inputs.R: save samples in "...for.AS.tab"
+## convert tab files into vcf
+tab2vcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/RNA for.AS.tab
+
+## merge all samples into 1 vcf per chr
+
+mergevcf /mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/RNA 22 22
+
+## rm intermediate files: not done
+
+
+## QC vcf file, make sure GT is in the right format: inputs.R
+## make sure counts and vcf have the same samples:inputs.R
+
+################## Run model for chr22 ##########
+
+## Some analysis in comp.out.chr22.GT.noGT.lm.R and more updated in out.chr22.lm.GT.noGT.rna.v2.R
+
+
+###########################################################################################
+##### Effect of reference panel on phasing  ###
+
+## select samples for : MXL
+
+## good panel: EUR + AMR except MXL
+
+## bad panel: AFR + South Asian
+
+## for samples: take chr22 and make a vcf unphased.
+
+
+## run in pop_RefPanel.R

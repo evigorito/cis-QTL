@@ -82,7 +82,7 @@ if(nrow(counts.g) == 0){  ## if no counts, stop running
         g <- Reduce('+', lapply(1:2, function(i) ref[,sample(1:ncol(ref), 500, replace=TRUE)]))
         w <- which(apply(g,1,sd) !=0) ## some SNPs have zero standard deviation (missing HWE stat). Please fix and rerun
         if(length(w) ==0){
-            stop("All snps have zerp standard deviation, increase maf when selecting snsp from reference panel")
+            stop("All snps have zero standard deviation, increase maf when selecting snsp from reference panel")
         } else {          
             g <- g[w,]
             colnames(g) <- paste0("V", 1:ncol(g), "_GT")

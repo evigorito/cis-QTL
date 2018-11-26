@@ -1,4 +1,4 @@
-// negative binomial for ASE eQTL with fixed genotypes but haplotype error accommodating complete allelic imbalance
+// negative binomial for ASE eQTL with prob genotypes and haplotype error accommodating complete allelic imbalance
 
 functions{
 

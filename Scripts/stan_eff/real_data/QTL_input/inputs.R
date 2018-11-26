@@ -22,7 +22,7 @@ vcf.path <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/chr22.ASE.allsamples.vcf.gz
 gt.ase=vcf_w(vcf=vcf.path,qc="yes") ## read vcf
 vcf.qc <- vcf.gt.qc(gt.ase)
 
-## to save a new vcf.gz (and tabix) excluding snps or samples with wrong genotype format in vcf.gt.qc , use argumentsvcf.path,  exclude=c("snps","samples") with path (defaults to wd).
+## to save a new vcf.gz (and tabix) excluding snps or samples with wrong genotype format in vcf.gt.qc , use argumentsvcf.path,  exclude=c("gtfsnps","samples") with path (defaults to wd).
 
 exclude.samples <- vcf.gt.qc(gt.ase, exclude="samples",vcf.path, path="/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/", vcf.out="chr22.GTqc")
 
@@ -55,13 +55,30 @@ counts <- fread(file='/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_raw_cou
 f <- 100 ## filter
 counts.f <- counts[which(rowMeans(counts[, 2:ncol(counts), with=F])>=f),]
 
+## make sure counts.f has the same samples as gt.as
+
+samp.gt.ase <- gsub(":GT", "", grep("GT", names(gt.ase), value=T))
+
+w <- names(counts.f[,2:ncol(counts.f)])[!names(counts.f)[2:ncol(counts.f)] %in% samp.gt.ase]
+if(length(w)){
+    counts.f <- counts.f[, -w, with=FALSE]
+}
+
+
 write.table(counts.f, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt', row.names=F)
 
 ## if samples were excluded due to QC issues in previous section, those samples need to be excluded from count matrix to run btrecase:
 
 counts.f.ex <- counts.f[,!exclude.samples$samples.excluded, with=FALSE]
 
+
 write.table(counts.f.ex, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.GTqc.txt', row.names=F)
+
+## check that sample order is the same in counts.f and lib_size: TO DO
+
+
+
+
 
 ##########################################################################################################
 ## Calculate library size: save as matrix in log scale
@@ -71,10 +88,11 @@ lib_size= log(colSums(as.matrix(counts[,2:ncol(counts),with=F])))
 lib_size <- matrix(lib_size, ncol=1, dimnames=list(names(counts)[2:ncol(counts)], "lib.s"))
 saveRDS(lib_size, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.rds')
 
-lib_size.GT <- log(colSums(as.matrix(counts[,names(counts.f.ex)[2:ncol(counts.f.ex)],with=F])))
-lib.size.GT <- matrix(lib_size.GT, ncol=1, dimnames=list(names(counts.f.ex)[2:ncol(counts.f.ex)], "lib.s"))
+## select samples comp with counts.f or counts.f.ex
 
-saveRDS(lib.size.GT, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.GT.rds')
+lib_size.comp <- lib_size[samp.gt.ase,,drop=FALSE]
+
+saveRDS(lib_size.comp, '/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/library.size.comp.rds')
 
 ## calculate prior for library size: prepare matrix with cols: ind,counts(per gene, all genes),lib.size(entred and standardised).
 
@@ -146,3 +164,18 @@ saveRDS(fsnps.22, file='/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22
 
 write.table(rbindlist(fsnps.22), file='/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/input/chr22.fSNPs.txt', row.names=F)
 
+
+################################# Genotyping with RNA #########################
+## Prepare files with GT and ASE information
+## Chr22
+chr22 <- DNAvcf4rasqual(path='/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/RNA',pattern="less.tab",chr=22)
+
+## After merging into 1 file with mergevcf as explained in geuv.summary.sh check GT field:
+
+vcf.path <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/chr22.ASE.allsamples.vcf.gz'
+gt.ase=vcf_w(vcf=vcf.path,qc="yes") ## read vcf
+vcf.qc <- vcf.gt.qc(gt.ase)
+
+## to save a new vcf.gz (and tabix) excluding snps or samples with wrong genotype format in vcf.gt.qc , use argumentsvcf.path,  exclude=c("snps","samples") with path (defaults to wd).
+
+exclude.samples <- vcf.gt.qc(gt.ase, exclude="samples",vcf.path, path="/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/", vcf.out="chr22.GTqc")
