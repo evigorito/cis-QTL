@@ -15,8 +15,8 @@ source('/home/ev250/Cincinatti/Functions/various.R')
 #' vcf_cl()
 
 vcf_cl <- function(cl1,cl2, sep=" ") {
-    tmp <- fread(cl1, header=F, sep=sep, colClasses=c(V4="character", V5="character"))
-    names(tmp) <- gsub("^.*]","",names(fread(cl2)))[-1]
+    tmp <- fread(cmd=cl1, header=F, sep=sep, colClasses=c(V4="character", V5="character"))
+    names(tmp) <- gsub("^.*]","",names(fread(cmd=cl2)))[-1]
     return(tmp)
 }
 
@@ -252,8 +252,9 @@ vcf.gt.qc <- function(gt.ase, exclude=c("snps","samples"), vcf.path, path=".", v
 #' @return vector with start and end of cis-window for the selected gene
 #' cl_coord()
 
-cl_coord<- function(file,chr,gene,cw=500000){
+cl_coord<- function(file,chr,chrCol=2,gene,stCol=4, endCol=5,cw=500000){
     ##cat(x) check if command looks ok then run with system, copy cat(x) output to shell and check if it works
+
     g.st=paste0("awk '$2 ==",chr,"' ",  file, " | grep ", gene, " | cut -d ' ' -f4 | sed 's/,.*//' ")
 
     g.end=paste0("awk '$2 ==",chr,"' ",  file, " | grep ", gene, " | cut -d ' ' -f5 | sed 's/.*,//' ")
@@ -347,7 +348,7 @@ fhaps<- function(file1, file2, snps){
 
         }
         
-        rf <- fread(haps, header=F)  ## referene panel for snps in hap format
+        rf <- fread(cmd=haps, header=F)  ## referene panel for snps in hap format
         mat <- as.matrix(rf)
         rownames(mat) <- names(n.lines)
         return(mat)
@@ -385,7 +386,7 @@ haps.range<- function(file1, file2, cw,population="EUR", maf=0.05){
     DT[,maf:=as.numeric(maf)]
     haps <- paste0("zcat ", file2, " | sed -n '", DT$line[1], ",", DT$line[nrow(DT)], "p' ")
     
-    rf <- fread(haps, header=F)  ## referene panel for snps in hap format
+    rf <- fread(cmd=haps, header=F)  ## referene panel for snps in hap format
     ## remove snps below maf cut-off
     
     keep <- which(DT$maf>=maf &  DT$maf< (1-maf))

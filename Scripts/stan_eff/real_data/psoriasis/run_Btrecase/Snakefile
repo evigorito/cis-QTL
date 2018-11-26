@@ -23,7 +23,6 @@ def gene_chrom(File=config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2t
 
 rule all:
     input:
-        #expand(config['output_dir'] + "/Btrecase/output/{gene}/btrecase.log", gene="ENSG00000233645")
         "Scripts/report.pdf"
 
 rule html_table:
@@ -70,18 +69,6 @@ rule get_DRG:
         "wget {params.page} ; "
         "mv 1-s2.0-S0022202X15368834-mmc2.xls {output} "
 
-rule select_genes:
-    """Select genes to run model. For DRG indicate colclass to read excel file. Select distance to choose proximal genes to gwas hits"""
-    input:
-        gwas=config['output_dir'] + "/pso_gwas/close_genes.txt",
-        drg=config['output_dir'] + "/pso_gwas/DRG_JID2014.xls"
-    params:
-        colclass=["character"]+["numeric" for i in range(7)],
-        dist=10**5
-    output:
-        config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt"
-    script:
-        "Scripts/genes2test.R"
 
 rule report:
     """ Creates report by rendering "Scripts/report.R" with appropiate inputs"""

@@ -86,7 +86,7 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
     ## Extract inputs for gene
     
     ## get counts  and covariates
-    counts.g <- fread(paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
+    counts.g <- fread(cmd=paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
     if(nrow(counts.g)==0) stop("Gene id is not found in count matrix")
     counts.g <- counts.g[,2:ncol(counts.g),with=F] ## removes gene_id
     ## get covariates and scale
@@ -94,7 +94,8 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
         covariates <- t(readRDS(covariates))
         if(!(is.matrix(covariates))) stop("Covariates file is not a matrix")
         if(nrow(covariates)!=ncol(counts.g))  stop(cat("Number of individuals in covariates matrix:", nrow(covariates), "\n Number of individuals in gene counts", ncol(counts.g)-1, "\n please adjust"))
-        ## scale
+        ## select gene and scale
+        covariates <- covariates[, gene, drop=F]
         covariates <- apply(covariates,2,scale,center=TRUE,scale=TRUE)
         rownames(covariates)=names(counts.g)
     }
@@ -103,7 +104,7 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
     snps.ex <- data.table(id=character(), reason=character())
     
     ## get fSNPs (feature snps or exonic snps)
-    fsnps <- fread(paste("grep", gene, e.snps))
+    fsnps <- fread(cmd=paste("grep", gene, e.snps))
 
     ## exclude fsnps if required
     if(!nrow(fsnps)) stop(cat("No entry for gene ", gene, " in e.genes"))
@@ -128,13 +129,14 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
     ## Check if there are sufficient hets with enough ASE counts
     c.ase = filt.fsnp(c.ase,ase=min.ase,min.ase.snp,n=min.ase.n, rem=NULL)
     if(is.character(c.ase)) stop(c.ase)
-    
-  
+     
     ## Extract haps for fsnps and rsnp from reference panel ########
+    gcoord <- fread(gene.coord)
     if(is.numeric(snps)) {
-        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        cis_window <- tryCatch({gcoord[gene_id==gene & chrom==chr,.(start,end)] + c(-snps, snps)},
+                               error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
         if(is.character(cis_window)) stop(cis_window)
-        rp <- haps.range(file1=le.file,file2=h.file,cw=cis_window,population, maf)
+        rp <- haps.range(file1=le.file,file2=h.file,cw=unlist(cis_window),population, maf)
         if(is.character(rp)) stop(rp)
         if(!nrow(rp)) stop("No snps extracted from the reference panel")
         rp.r=rp
@@ -143,8 +145,10 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
         w <- which(!is.na(pos))
         if(!length(w)) stop(cat("Invalid format for snps ", snps[w]))
         ## get gene start and end, ciswindow=0
-        st_end=tryCatch({cl_coord(gene.coord,chr,gene,cw=0)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        st_end <- tryCatch({gcoord[gene_id==gene & chrom==chr,.(start,end)] + rep(0, 2)},
+                               error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
         if(is.character(st_end)) stop(st_end)
+        st_end <- unlist(st_end)
         ## construct cis-window with snps, making sure to include the whole gene
         m <- min(pos) < st_end[1]
         M <- max(pos) > st_end[2]
@@ -339,7 +343,7 @@ btrecase.nogt.rna(gene=snakemake@params[['gene']],
                   chr=as.numeric(snakemake@params[['chrom']]),
                   snps=as.numeric(snakemake@params[['snps']]),
                   counts.f=snakemake@input[['counts']],
-                  #covariates=snakemake@input[['libsize']],
+                  covariates=snakemake@input[['libsize']],
                   e.snps=snakemake@input[['eSNPs']],
                   gene.coord=snakemake@input[['genecoord']],
                   vcf=snakemake@input[['vcf']],
@@ -360,25 +364,29 @@ btrecase.nogt.rna(gene=snakemake@params[['gene']],
                   ex.fsnp=NULL)
 
 
-#e.snps='/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/fSNP/chr1.fSNP.genes.txt'
-#gene="ENSG00000233645"
-gene="ENSG00000000457"
-counts.f <-  "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/Counts/Psoriasis_skin.txt"
-vcf <- "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/GT/chr1.ASE.Psoriasis_skin.vcf.gz"
-chr <- 1
-le.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr22.legend.gz'
+## e.snps='/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/fSNP/chr1.fSNP.genes.txt'
+## #gene="ENSG00000233645"
+## gene="ENSG00000000457"
+## counts.f <-  "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/Counts/Psoriasis_skin.txt"
+## covariates <- "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/Counts/Psoriasis_skin_gc_lib_size.rds"
+## vcf <- "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/GT/chr1.ASE.Psoriasis_skin.vcf.gz"
+## chr <- 1
+## gene.coord <- "/mrc-bsu/scratch/ev250/psoriasis/Btrecase/inputs/gene_inputs/gene_info.txt"
+## le.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr1.legend.gz'
 
-h.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr22.hap.gz'
+## h.file='/home/ev250/rds/rds-cew54-wallace-share/Data/reference/1000GP_Phase3/1000GP_Phase3_chr1.hap.gz'
 
-model='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.noGT.rsnp.prior02.eff2.stan'
+## model='/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.noGT.rsnp.prior02.eff2.stan'
 
-population="EUR"
-maf=0.05
-nhets=5
-min.ase=5
-min.ase.snp=5
-min.ase.n=5
-tag.threshold=.9
-q.test="no"
-info=0.3
-snps=5*10^5
+## population="EUR"
+## maf=0.05
+## nhets=5
+## min.ase=5
+## min.ase.snp=5
+## min.ase.n=5
+## tag.threshold=.9
+## q.test="no"
+## info=0.3
+## snps=5*10^5
+## prob=NULL
+## ex.fsnp=NULL

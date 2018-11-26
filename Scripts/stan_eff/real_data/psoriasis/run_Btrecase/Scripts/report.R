@@ -49,7 +49,6 @@ f(dt=gwas[!rs_id %in% gwas[gene_dist==0,rs_id],] ,var1="rs_id",
 
 #' ## DEG in psoriatic vs healthy skin
 #' * Based on J Invest Dermatol. 2014 Jul;134(7):1828-1838. doi: 10.1038/jid.2014.28. Epub 2014 Jan 17.
-#' * Only genes with pval <10^-6 are reported, no selection for fold change.
 #' * Gene expression is reported in RPKM, low <1, 1<=med<500, high>=500
 
 ## open file
@@ -57,10 +56,12 @@ drg=data.table(read.xlsx2(snakemake@input[['drg']],
                           sheetIndex=1 ,
                           colClasses=snakemake@params[['colclass']]))
 
-#' * 7238 DEG with Case Median expression >1
-#' * 2465 DEG with Case Median expression >1 & FC >1
-#' * Distribution of FC by expression levels in up-regulated genes
+#' * 7238 DEG with Case Median expression >1 and p<=10^-6 (cut-off in paper)
+#' * 2465 DEG with Case Median expression >1 & FC >1 and p<=10^-6 (cut-off in paper)
+#' * Distribution of FC by expression levels in up-regulated genes (p<=10^-6, cut-off in paper)
 #' 
+## Select DRG
+drg <- drg[RankP<=10^-6]
 f2(dt=drg[ FC>=1,], var1="CaseMedian", var2="FC",
    range1=c(0, 1, 500, max(drg$CaseMedian)))
  
@@ -71,7 +72,7 @@ f2(dt=drg[ FC>=1,], var1="CaseMedian", var2="FC",
 
 #' * Look at the expression leves for genes associated with GWAS hits
 
-## 22 out of 38 GWAS hits within genes are DEG, most with low-medium
+## 22 out of 38 genes with in-gene GWAS hits are DEG, most with low-medium
 ## expressin levels in psoriatic skin
 
 f3(drg, gwas, var1="Gene.Symbol",var2="CaseMedian",d=d)
@@ -81,7 +82,7 @@ summary(drg[Gene.Symbol %in% gwas[['gene_name']] , CaseMedian ])
 #' ## Genes to follow up
 #' * Genes within 100KB to GWAS hits
 #' * Highly expressed upregulated DEG (RPKM >=500)
-
-#' List of genes: 433 
-## Up to 100 KB from gene from gwas and high expressed FC>1 in DRG
+#' 
+## Total genes: 422 
+## Up to 100 KB from gene from gwas and upregulated DRG highly expressed in psoriatic skin
 unique(c(gwas[gene_dist <= 100000, gene_name], drg[CaseMedian>=500 &FC>1, as.character(Gene.Symbol)]))
