@@ -4,6 +4,7 @@ library(MASS)
 library(emdbook) #simulate beta binomial
 ##library('Matrix', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
 ##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
+library(Matrix)
 library(mvtnorm)
 library(gridExtra)
 library(ggplot2)
@@ -11,6 +12,8 @@ library(tidyr)
 
 
 source('/home/ev250/Bayesian_inf/trecase/Functions/various.R')
+source('/home/ev250/Cincinatti/Functions/various.R')
+
 
 #' prepare input for stan neg.only.bj.stan
 #'
@@ -303,7 +306,7 @@ stan.trecase.eff2 <- function(counts.g, rp.1r, rp.f, f.ase, rs.hap, rec.rsnp, st
         ## by gt
         u.hom <- u.gt.r[u.gt.r==0 | u.gt.r==2]
         u.het <- u.gt.r[abs(u.gt.r)==1] ## any het
-        if(length(u.hom)){
+        if(length(u.hom)) {
 
             hap.r.hom <- lapply(hap.f.p, function(i) { tmp <- sapply(u.hom, function(j) paste(paste0(i,rep(j/2,2)), collapse=","))
                 names(tmp) <- paste0("g",u.hom)
@@ -338,7 +341,7 @@ stan.trecase.eff2 <- function(counts.g, rp.1r, rp.f, f.ase, rs.hap, rec.rsnp, st
                 DT <- hap.het
             }
         }
-
+        DT[, fhap:=colnames(n.mat)]
         keep <- grep("^g",names(DT), value=T)
         DT[, paste0("row.", keep):=lapply(keep, function(i) hap.p.no.gt2(s.M, M=M, get(i)))]
         ## assign p=0 and replace when row.g !=0
@@ -420,7 +423,9 @@ list.help <- function(g,gt.r,n.mat,DT,m){
         p <- c("p.g1.p", "p.g1.m")
         if(g==-1){
             p <-p[length(p):1]
-        }       
+        }
+        ## order DT$fhap as names(n.mat)
+        DT <- DT[order(match(fhap, colnames(n.mat)))]
         pH.sam <- lapply(sam.id, function(i) unname(unlist(DT[, p, with=F])))
     }
 
@@ -1003,7 +1008,8 @@ mat.col <- function(M){
     ## need to reorder x as in M, r.names same order as rownames(M), and colnames as col.order
     tmp <- sparseMatrix(i=1:nrow(x), j=x$j, x=x$value, dimnames=list(x$r.names, index.j$value))
     tmp <- tmp[match(rownames(M),rownames(tmp)), match(col.order,colnames(tmp))]
-    v=1/colSums(tmp)
+    ##v=1/colSums(tmp)
+    v=1/apply(tmp,2,sum)
     diag <- as(Diagonal(length(v), v), "sparseMatrix")
     tmp <- tmp %*% diag
     return(tmp)
@@ -2084,7 +2090,7 @@ stan.rsnp.noGT.eff <- function(counts.g, rp.f, rp.1r, stan.f) {
             })
         
         ## get p(H|G fsnps) for each hap pair in rows.comp
-        pH.G <- lapply(rows.comp, function(i) rowSums(M.all.cond[i,,drop=F]))
+        pH.G <- lapply(rows.comp, function(i) apply(M.all.cond[i,,drop=F], 1, sum))
 
         ## prepare lists to return
 

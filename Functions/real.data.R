@@ -99,6 +99,12 @@ cl_bcfq<- function(vcf,chr=NULL,st=NULL, end=NULL, samples=NULL, f.arg=NULL, par
         if(!is.null(samples) & exists("reg") & !is.null(f.arg)){
             x <- paste( ' bcftools query -f ', f.arg, reg, samp, vcf)
         }
+
+        if(is.null(samples) & exists("reg") & !is.null(f.arg)){
+            x <- paste( ' bcftools query -f ', f.arg, reg , vcf)
+        }
+
+        
       
     } else {
 
@@ -164,7 +170,7 @@ vcf_w <- function(vcf,chr=NULL, st=NULL, end=NULL, samples=NULL, f.arg=NULL, qc=
                 gt.ase[gt.ase=="0/0" | gt.ase=="0/1" | gt.ase=="1/0" | gt.ase=="1/1"] <- "."
 
                 ## exclude  snps if homo or missing for all samples
-                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) identical(unique(i),c("0|0", ".") ) | identical(unique(i),c("1|1", ".")) |  identical(unique(i),"0|0") | identical(unique(i), ".") | identical(unique(i),"1|1"))
+                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) setequal(unique(i),c("0|0", ".") ) | setequal(unique(i),c("1|1", ".")) |  setequal(unique(i),"0|0") | setequal(unique(i), ".") | setequal(unique(i),"1|1"))
 
                 ## this col will help to match snps with legend/hap reference panel
                 gt.ase[, id:= paste(POS, REF, ALT, sep=":")]
@@ -438,8 +444,7 @@ snp.eaf<- function(file1, snps,population="EUR"){
 #' Total gene and ASE counts, per fsnp, per individual
 #' 
 #' Get total and AS counts per snp per individual
-#' @param x DT with ASE and GT created from reading vcf
-#' @param y data table with total counts for samples
+#' @param x DT with ASE and GT created from reading vcf#' @param y data table with total counts for samples
 #' @param z data table with each row the genotype for 1 rsnp coded as 0,1,-1 or 2, output from a rec_mytrecase_rSNPs
 #' @keywords counts gene ASE 
 #' @export
@@ -1358,3 +1363,102 @@ prop_het <- function(f.ase, rp.f,gene){
     
 }
 
+############# emedlab adapt
+
+
+#' Extract GT for a gene
+#'
+#' This function allows you to extract GT  for a gene, wraper for cl_bcfq and vcf_cl plus some formatting.
+#' removes snps if homo or missing for all samples. Adds id col 
+#' @param vcf full path to vcf
+#' @param chr chromosome to extract, null for whole vcf
+#' @param st start position to extract, null for whole vcf
+#' @param end end position to extract, null for whole vcf
+#' @param samples character vector with samples to extract, defaults=NULL
+#' @param f.arg character vector with -f argument for bcftools query, defaults to GT and ASE
+#' @param qc use function for qc purpose only
+#' @param exclude whether to return a list with snps excluded from vcf (all homo or missing)
+#' @keywords vcf fread
+#' @export
+#' @return data table with GT and ASE, unless !is.null(excluded), returns list with first element data table with GT and ASE and second element a data table with exluded snps.
+#' vcf_w2()
+
+vcf_w2 <- function(vcf,chr=NULL, st=NULL, end=NULL, samples=NULL, f.arg=NULL, qc=NULL, exclude=NULL) {
+    
+        body <-cl_bcfq(vcf, chr, st, end ,samples,f.arg, part="body")
+   
+        header <- cl_bcfq(vcf, chr, st, end , samples,f.arg, part="header")
+        
+
+    ## open GT and ASE for the selected gene
+
+    gt.ase <- tryCatch({vcf_cl(body,header,sep=" ")}, error=function(e){paste("Region not found for chrom and positions", chr,st,end, sep=":")})
+    if(is.character(gt.ase)){
+        return(gt.ase)
+    } else {
+        
+        if(!is.null(qc)){
+            return(gt.ase)
+            } else {
+            
+                ## recode names gt.ase to make it compatible with Cincinatti files and functions
+                names(gt.ase) <- gsub(":","_",names(gt.ase))
+
+                ## exclude  snps if homo or missing for all samples
+                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1,
+                            function(i) setequal(unique(i),c("0/0", "./.") ) |
+                                        setequal(unique(i),c("1/1", "./.")) |
+                                        setequal(unique(i),"0/0") | setequal(unique(i), "./.") |
+                                        setequal(unique(i),"1/1"))
+
+                ## this col will help to match snps with legend/hap reference panel
+                gt.ase[, id:= paste(POS, REF, ALT, sep=":")]
+                
+                if(is.null(exclude)){
+                    ## select relevant snps
+                    gt.ase <- gt.ase[which(ex==FALSE),]
+                    return(gt.ase)
+                } else {
+                    excl=gt.ase[ex,]
+                    excl[,reason:="Missing or homo GT all samples"]
+                    excl <- excl[,.(id,reason)]
+                    l <- list(keep= gt.ase[!ex,],excluded=excl)
+                    return(l)
+                }
+        
+            }
+    
+    }
+}
+
+
+#' Selects unphased SNPs and recode GT to : 0 AA, 1 AB(BA), 2 BB
+#' 
+#' recodes fixed genotypes to 0-2 scale, samples with "_GT" suffix. Missing data as "NA"
+#' @param y data.table with unphased GP (0/1) for each sample, for the chr selected in x input
+#' @param z vector with order of samples, defaults to NULL
+#' @keywords recode GT rSNP 
+#' @export
+#' @return data table with recoded GT per sample
+#' rec_unphase_rSNPs
+
+rec_unphase_rSNPs <- function(y, z=NULL){
+    tmp2 <- y[,grep("_GT", names(y), value=T), with=F]
+    #new.names <- gsub("_GT","",names(tmp2))
+    for(i in seq_along(names(tmp2))) { #recode
+        #setkey(tmp2,i)
+        tmp2[get(names(tmp2)[i])=="0/0",names(tmp2)[i]:="0"]
+        tmp2[get(names(tmp2)[i])=="0/1",names(tmp2)[i]:="1"]
+        tmp2[get(names(tmp2)[i])=="1/0",names(tmp2)[i]:="1"]
+        tmp2[get(names(tmp2)[i])=="1/1",names(tmp2)[i]:="2"]
+        tmp2[get(names(tmp2)[i])==".",names(tmp2)[i]:=NA]
+        
+        tmp2[,names(tmp2)[i]:=as.numeric(get(names(tmp2)[i]))]
+        }
+    y[, grep("_GT", names(y), value=T) := tmp2]
+    
+    if(!is.null(z)) {
+        setcolorder(y,c(grep("_GT", names(y), invert=T, value=T), paste0(z,"_GT")))
+        }
+    return(y)
+}       

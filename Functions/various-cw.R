@@ -2,14 +2,13 @@ library(data.table)
 library(cowplot)
 library(MASS)
 library(emdbook) #simulate beta binomial
-library('Matrix')#, lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.4");
-##library('iterpc', lib.loc="/home/ev250/R/x86_64-pc-linux-gnu-library/3.3");
+library('Matrix');
+library('iterpc');
 library(mvtnorm)
 library(gridExtra)
 library(ggplot2)
-library(Rcpp)
 
-
+#source('/home/ev250/Bayesian_inf/trecase/Functions/stan.eff.R')
 
 ################### functions for simulations #############################
 
@@ -43,7 +42,7 @@ genotypes <- function(N,maf){
 
 neg.binom.trec <- function(x, betas=c(6,.1),phi,bj){
     setkey(x,g)
-    base.counts <- as.matrix(x[,which(names(x)!="g"),with=F]) %*% betas
+    base.counts <- as.matrix(x[g==0,which(names(x)!="g"),with=F]) %*% betas
     y.aa <- rnbinom(nrow(x[g==0,]),size=phi,mu=exp(base.counts))         
     y.ab <- rnbinom(nrow(x[g==1,]),size=phi, mu=exp(base.counts+ log(1+ exp(bj)) -log(2)))
     y.bb <- rnbinom(nrow(x[g==2,]),size=phi, mu=exp(base.counts + bj))
@@ -359,12 +358,12 @@ sim.pop.haps <- function(f,m,cov,N=500, r2=NULL,maf=NULL){
 tot.ase <- function(f,g,mu,phi,theta,p,f.ase,betas=NULL,covar=NULL){
     bj=log(p/(1-p))
     if(!is.null(betas)){
-        mu = exp(covar %*% c(log(mu),betas))
+        mu = exp(covar %in% c(log(mu),betas))
     }
     
     DT  <- data.table(rsnp=g[,ncol(g)])
     DT[rsnp==0, y:=rnbinom(sum(rsnp==0),size=phi,mu=mu)]
-    DT[rsnp==1, y:=rnbinom(sum(rsnp==1),size=phi, mu=exp(log(mu)+ log(1+ exp(bj)) -log(2)))]
+    DT[rsnp==1, y:=rnbinom(sum(rsnp==1),,size=phi, mu=exp(log(mu)+ log(1+ exp(bj)) -log(2)))]
     DT[rsnp==2, y:=rnbinom(sum(rsnp==2),size=phi, mu=exp(log(mu) + bj))]
     # calculate ASE for fSNPs=1 based on rSNP
     DT <- cbind(DT,g[,1:f])
@@ -419,52 +418,7 @@ u.hap.pairs2 <- function(uhaps){
     }
     return(haps.pairs)
 }
-
-#' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: get unique pairs of haplotypes from a set of haplotypes
-#'
-#' This function allows you to sum a pair of haplotypes (strings) and return a string with the sum
-#' @param a vector with haplotypes 1
-#' @param b vector with haplotypes 
-#' @keywords sum haplotype pairs
-#' @export
-#' @return vector  with the sum of the haplotype pair (genotype)
-#' add.geno()
-
-add.geno <- function(a,b) {
-   
-    an=lapply(strsplit(a,""),as.numeric)
-    bn=lapply(strsplit(b,""),as.numeric)
-    ##lapply(mapply("+",an,bn,SIMPLIFY=FALSE),paste,collapse="")
-    u <- unlist(lapply(mapply("+",an,bn,SIMPLIFY=FALSE),paste,collapse=""))
-    return(u)
-}
-
-#' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: get unique pairs of haplotypes from a set of haplotypes
-#'
-#' This function allows you to sum a pair of haplotypes (strings) and return a string with the sum
-#' @param a vector with haplotypes 1
-#' @param b vector with haplotypes 
-#' @keywords sum haplotype pairs
-#' @export
-#' @return vector  with the sum of the haplotype pair (genotype)
-#' For speed, the function assumes that the two strings are the same length and contains only the chars '0' and '1'., written by Colin Starr
-#' addStrings
-
-cppFunction("
-#include <string>
-std::vector<std::string> addStrings(std::vector<std::string> &one, 
-std::vector<std::string> &two) {
-     std::vector<std::string> out(one.size());
-     for (unsigned i = 0; i < one.size(); i++) {
-         out[i].resize(one[i].size());
-         for (unsigned j = 0; j < one[i].size(); j++) {
-             out[i][j] = one[i][j] + two[i][j] - '0';
-         }
-     }
-     return out;
-}
-")
-
+  
 
 #' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: calculate probability of population haplotype pairs
 #'
@@ -472,70 +426,47 @@ std::vector<std::string> &two) {
 #' @param h population haplotypes
 #' @keywords simulation probability haplotype pairs
 #' @export
-#' @return data.table with probabilities of haplotype pairs and genotype
-#' p.hap.pair.dt()
-
-p.hap.pair.dt <- function(h){
-    nsnp <- ncol(h)
-    N <- nrow(h)/2 # individuals is number of haplotypes/2
-    ## haplotype frequencies
-    DT <- as.data.table(h)
-    hap.freq <- DT[,.N, by=names(DT)][, N:=N/sum(N)] ## if DT has duplicated names (fsnp is rnsp) then hap.freq will label one with ".1", so names(DT) and hap.freq will be different
-    hap.freq[,hstr:= apply(hap.freq[,1:ncol(DT), with=F], 1,  paste, collapse="")]
-    h2 <- as.matrix(hap.freq[, 1:ncol(DT), with=F])
-    hap.freq[,names(hap.freq)[1:ncol(DT)]:=NULL]
-    #unique(h)
-    uhaps <- unique(hap.freq$hstr)
-    uhaps.pairs <- u.hap.pairs(h2)   
-    uhaps.pairs[,freq:=0]
-    uhaps.pairs[,geno:=addStrings(as.character(Var1),as.character(Var2))]
-    ## merge hap.freq with uhap.pairs by Var1 to get a col of freq_Var1, then do the same for Var2
-    uhaps.pairs <- merge(uhaps.pairs, hap.freq, by.x="Var1", by.y="hstr", sort=F)
-    uhaps.pairs <- merge(uhaps.pairs, hap.freq, by.x="Var2", by.y="hstr", sort=F)
-    uhaps.pairs[Var1==Var2,freq:= N.x*N.y][Var1!=Var2, freq:=2*N.x*N.y]
-    
-    # to ease finding hap.pairs
-    uhaps.pairs[,haps:=paste0(uhaps.pairs[,Var1],",",uhaps.pairs[,Var2])]
-   return(uhaps.pairs)
-}
-
-
-#' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: calculate probability of population haplotype pairs
-#'
-#' This function allows you to calculate frequency of haplotype pairs in population, returns a matrix
-#' @param h population haplotypes
-#' @keywords simulation probability haplotype pairs
-#' @export
 #' @return matrix with probabilities of haplotype pairs and genotype
 #' p.hap.pair()
 
 p.hap.pair <- function(h){
-    DT <- p.hap.pair.dt(h)
-    ## create matrix of frequency of haplotype by genotype
-    M <- matrix(0,nrow=nrow(DT), ncol=length(unique(DT$geno)), dimnames = list( DT[,haps], unique(as.character(DT$geno))))
-     
+    nsnp <- ncol(h)
+    N <- nrow(h)/2 # individuals is number of haplotypes/2
+    ## haplotype frequencies
+    hstr <- apply(h,1,paste,collapse="")
+    hap.freq <- data.table(prop.table(table(hstr)))
+    #unique(h)
+    uhaps <- unique(hstr)
+    uhaps.pairs <- u.hap.pairs(h)   
+    geno.uhaps.pairs <-t(sapply(uhaps, function(x) as.numeric(substring(x, first=1:nsnp, last=1:nsnp)))) # each row: rownames hap string, each col each element of the string
+    uhaps.pairs[,geno:="0"]
+    uhaps.pairs[,freq:=0]
+
+    uhaps.pairs[,geno:=add.geno()]
+    
+    for(i in 1:nrow(uhaps.pairs)){
+        uhaps.pairs[i,geno:=paste0(colSums(geno.uhaps.pairs[unlist(uhaps.pairs[i,1:2,with=F]),]),collapse="")]
+        if(uhaps.pairs[i,Var1]==uhaps.pairs[i,Var2]){
+            uhaps.pairs[i,freq:= hap.freq[hstr %in% unlist(uhaps.pairs[i,1:2,with=F]),N^2]]
+            } else {
+            uhaps.pairs[i,freq:= hap.freq[hstr %in% unlist(uhaps.pairs[i,1:2,with=F]),2*prod(N)]]
+            }
+        }
+    # to ease finding hap.pairs
+    uhaps.pairs[,haps:=paste0(uhaps.pairs[,Var1],",",uhaps.pairs[,Var2])]
+   # create matrix of frequency of haplotype by genotype
+    M <- matrix(0,nrow=nrow(uhaps.pairs), ncol=length(unique(uhaps.pairs$geno)))
+    rownames(M) <- uhaps.pairs[,haps]
+    colnames(M) <- unique(uhaps.pairs$geno)
     ## Populate M with entries in uhaps.pairs
-    M[cbind(DT$haps,DT$geno)] <- DT$freq
-    return(M)
+    for(i in 1: ncol(M)){
+        tmp <- uhaps.pairs[geno==colnames(M)[i],.(haps,freq)]
+        M[tmp[,haps],i] <- tmp[,freq]
+    }
+         return(M)
 }
 
-#' Sub function for simulating haplotypes with ASE, fSNPs plus one rSNP: calculate probability of population haplotype pairs and return sparse matrix
-#'
-#' This function allows you to  calculate frequency of haplotype pairs in population, returns a sparse matrix
-#' @param h matrix with population haplotypes
-#' @keywords simulation probability haplotype pairs
-#' @export
-#' @return sparse matrix with probabilities of haplotype pairs and genotype
-#' p.hap.pair.s()
 
-p.hap.pair.s <- function(h){
-    DT <- p.hap.pair.dt(h)
-    ## create matrix of frequency of haplotype by genotype
-    ##alternative using sparseMatrix
-    M2 <- sparseMatrix(i=1:nrow(DT), j=match(DT$geno, unique(DT$geno))  ,x=DT$freq, dims=c(nrow(DT), length(unique(DT$geno))), dimnames = list( DT[,haps], unique(DT$geno)))   
-    return(M2)
-}
-   
 
 #' Function for calculating p(H) by EM iteration
 #'
@@ -1034,10 +965,10 @@ change.p.sim <- function(x,p, covar=1){
 #'
 #' This function allows you to run many simulations from a list of stan inputs
 #' @param x file and path to stan code
-#' @param y list of stan input per simulation
+#' @param y list of stan input per individual
 #' @keywords stan multiple simulations 
 #' @export
-#' @return list of summary stan output
+#' @return list to input to stan negbinombeta.ase.prob.phasing.stan
 #' stan.many.sim()
 
 stan.many.sim <- function(x,y){
@@ -1079,21 +1010,19 @@ stan.to.plot <- function(x,y="bj"){
 #' @param e simulated effect size to draw vertical and horizontal lines
 #' @param rx vector with range for x axis
 #' @param ry vector with range for x axis
-#' @param xl character with xlab
-#' @param yl character with ylab
 #' @keywords stan summary plot  
 #' @export
 #' @return ggplot object
 #' stan.plot()
 
-stan.plot <- function(x, y, t=NULL, e=NULL, rx=NULL,ry=NULL,xl, yl){
+stan.plot <- function(x, y, t=NULL, e=NULL, rx=NULL,ry=NULL){
     DT <- cbind(x,y)
     p <- ggplot(DT, aes(get(names(x)[1]), get(names(y)[1])))+
         geom_point() +
         geom_errorbarh(aes_string(xmin=names(x)[2], xmax=names(x)[3])) +
         geom_errorbar(aes(ymin=get(names(y)[2]), ymax=get(names(y)[3]))) +
         theme_bw() +
-        xlab(xl) + ylab(yl) +
+        xlab("Fixed haplotypes") + ylab("Uncertain haplotypes") +
         theme(axis.title = element_text(size=24), axis.text.x = element_text(colour="black", size = 22),axis.text.y = element_text(colour="black", size = 22)) +
         geom_rug(col=rgb(.8,0,0,alpha=.2))
 
@@ -1141,19 +1070,17 @@ stan.plot <- function(x, y, t=NULL, e=NULL, rx=NULL,ry=NULL,xl, yl){
 #' @param e simulated effect size to draw vertical and horizontal lines
 #' @param rx vector with range for x axis
 #' @param ry vector with range for x axis
-#' @param xl character xlab
-#' @param yl character yl
 #' @keywords stan summary plot  
 #' @export
 #' @return ggplot object
 #' wrap.plot()
 
-wrap.plot <- function(x,y,param="bj",sx="_fix",sy="_prob",t,e=NULL, rx=NULL,ry=NULL,xl="Fixed haplotyes", yl="Uncertain haplotypes"){
+wrap.plot <- function(x,y,param="bj",sx="_fix",sy="_prob",t,e=NULL, rx=NULL,ry=NULL){
     DTx <- stan.to.plot(x=x,y=param)
     DTy <- stan.to.plot(x=y, y=param)
     names(DTx) <- paste0(names(DTx), sx)
     names(DTy) <- paste0(names(DTy),sy)
-    DT.plot <- stan.plot(x=DTx,y=DTy,t=t,e=e, rx=rx, ry=ry,xl,yl)
+    DT.plot <- stan.plot(x=DTx,y=DTy,t=t,e=e, rx=rx, ry=ry)
     return(DT.plot)
 }
 
@@ -1285,48 +1212,6 @@ stan.cis.mult <- function(a,x,y="bj",z=0){
 }
 
 
-#' get param estimate and credible Intervals from many stan summary objects 
-#'
-#' This function allows you to extract param estimates and CIs from stan summary objects
-#' @param a list of named stan objects from stan.many.sim 
-#' @param y name of parameter to extract
-#' @keywords stan parameter estimate credible intervals
-#' @export
-#' @return DT with mean effect size and 95%CI
-#' stan.param.sum()
-
-stan.param.sum <- function(a,y="bj"){
-    if(any(sapply(a, class) == "list")){
-        cis <- lapply(a, stan.to.plot,y=y)
-        DT <- do.call(cbind,cis)
-    } else {
-        DT <- stan.to.plot(a,y=y)
-    }
-    
-    DT <- DT[, lapply(.SD, round,digits=4)] 
-    idx <- seq(1,ncol(DT),3) # each object has 3 col
-
-    if(any(sapply(a, class) == "list")){
-        s <- names(a)
-    } else {
-        s <- y
-    }
-    
-        
-    ## add CIs and extras
-    for(i in seq_along(idx)){
-        DT[, paste0(s[i],"_CI"):= paste(get(names(DT)[idx[i]+1]), get(names(DT)[idx[i]+2]), sep=":")]  
-    }
-    DT1 <- DT[,c(idx, (max(idx)+3):ncol(DT)), with=F] ## removes min and max cols
-    ##setcolorder(DT1, unlist(lapply(pre, function(i) grep(i,names(DT1), value=T))))
-    return(DT1)
-
-   
-   
-
-}
-
-
 #' get summary of simulations from many stan summary objects 
 #'
 #' This function allows you to extract summary info from stan simulations
@@ -1349,130 +1234,3 @@ stan.sum <- function(DT, x="bj"){
     return(tmp)
 }
 
-#' Format a named list of stan output for Btrecase.R
-#'
-#' This function allows you to extract the parameter information from a list of stan summaries (output from stan.many.sim)
-#' @param x list of summaries
-#' @param y parameter to extract from summary, NULL if already extracted
-#' @param rtag optional argument,whether snps were grouped using tag function
-#' @param model, character vector indicating which model was run: full or neg.only
-#' @param nhets, vector with the number of hets  for each rsnp
-#' @param ASE.hets, vector with the number of hets with sufficient ASE counts for each rsnp
-#' @param gene gene id of gene under study
-#' @param EAF, data table with snp and eaf for tag snps, output from snp.eaf (real.data.R), defaults to NULL
-#' @param info, named vector with info type score for tag snp, names snp_id, defaults to NULL
-#' @param nfsnps, number of fsnps in analysis, defaults to NULL
-#' @param min.pval data table with cols fsnp_id, OR (odds ratio), pvalue, gene_id, output from porp.het, for each gene selects the min(pvalue) and add it to output
-#' @param probs extremes for the posterior probability mass, defaults to 2.5 and 97.5
-#' @keywords stan multiple snps 
-#' @export
-#' @return DT with formatted data
-#' stan.bt()
-
-stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval=NULL, probs=NULL){
-    if(!is.null(y)){
-        l <- lapply(x,function(i) i[y,])
-    } else {
-        l <- x
-    }    
-    DT <- data.table(do.call(rbind, l))
-    ## convert to log2
-    DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[c(1:8)]]
-    DT[,names(DT)[c(1:8)] := DT2]
-    ## add col for whether 95%CI contains the null (0)
-    if(is.null(probs)){
-        DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
-        ## add col with distance to the null if null="no" or length CI if null="yes"
-        DT[null=="no" & `2.5%` >0 ,d:= `2.5%`][null=="no" & `2.5%` <0 ,d:= -`97.5%`][null=="yes",d:=abs(`2.5%` - `97.5%`)]
-
-    } else { 
-        exp1 <- paste0("`",probs*100, "%","`")
-        exp2 <- paste(c("<", ">"),0)
-        tmp <- outer(exp1,exp2 , paste) ## all combinations
-        tmp2 <- apply(tmp,2, paste, collapse=" & ") ##vector with expressions for defining null
-        DT[, null:="yes"][eval(parse(text=tmp2[1])), null:="no"][eval(parse(text=tmp2[2])), null:="no"]       
-
-        DT[null=="no" & eval(parse(text=tmp[1,2])) ,d:= eval(parse(text=exp1[1])) ][null=="no" &  eval(parse(text=tmp[1,1])) ,d:= -as.numeric(eval(parse(text=exp1[2])))][null=="yes",d:=abs(as.numeric(eval(parse(text=exp1[1]))) - as.numeric(eval(parse(text=exp1[2]))))]
-    }
-    
-    DT[, d.aux:=d][null=="yes", d.aux:=-d] ## to sort length CI in ascending order    
-    if(!is.null(rtag)){
-        DT[,tag:=names(x)]
-    } else {
-        DT[,SNP:=names(x)]
-    }
-    ##DT[,d.aux:=NULL]
-    setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log2_aFC_", names(DT)[1:(ncol(DT)-1)]))
-    DT[,Gene_id:=gene]    
-    setcolorder(DT , names(DT)[c(15,14,1:8,11:13,9:10)])
-    DT[,model:=model]
-    DT[,nhets:=nhets]
-    DT[,ASE.hets:=ASE.het]
-
-    ##order EAF as DT$tag
-    if(!is.null(EAF)){
-        EAF <- EAF[order(match(snp, DT$tag)),]
-        DT[,tag.EAF:=EAF$eaf]
-    }
-    
-    if(!is.null(info)){
-        info <- info[DT$tag]
-        DT[,info:=info]
-    }
-    if(!is.null(nfsnps)){
-        DT[,n.fsnps:=nfsnps]
-    }        
-    if(!is.null(min.pval)){
-        DT[, min.p.fsnp:=min(min.pval$pvalue)]
-    }
-    
-    setorder(DT,log2_aFC_null,-log2_aFC_d)
-    return(DT)
-}
-
-
-#' Format a named list of stan output for btrecase2T.nogt.rna
-#'
-#' This function allows you to extract the parameter information from a list of stan summaries (output from stan.many.sim)
-#' @param x list of summaries
-#' @param rtag optional argument,whether snps were grouped using tag function
-#' @param gene gene id of gene under study
-#' @param EAF, data table with snp and eaf for tag snps, output from snp.eaf (real.data.R), defaults to NULL
-#' @param info, named vector with info type score for tag snp, names snp_id, defaults to NULL
-#' @param nfsnps, number of fsnps in analysis, defaults to NULL
-#' @param min.pval data table with cols fsnp_id, OR (odds ratio), pvalue, gene_id, output from porp.het, for each gene selects the min(pvalue) and add it to output
-#' @param probs extremes for the posterior probability mass, defaults to 2.5 and 97.5
-#' @keywords stan multiple snps 2 tissues
-#' @export
-#' @return DT with formatted data
-#' stan.bt()
-
-stan.2T <- function(x,rtag=NULL, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval=NULL, probs=NULL){
-    DT <- rbindlist(x)
-    ## convert to log2
-    cols <- unlist(lapply(c("mean", "sd", "%"), function(i) grep(i, names(DT), value=T)))
-    DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=cols]
-    DT[, (cols):= DT2]
-    if(!is.null(rtag)) setnames(DT,"rSNP", "tag");
-    setnames(DT , cols , paste0("log2_aFC_", cols))
-    DT[,Gene_id:=gene]    
-    setcolorder(DT ,names(DT)[c(ncol(DT),1:(ncol(DT)-1) )])
-    ##order EAF as DT$tag
-    if(!is.null(EAF)){
-        EAF <- EAF[order(match(snp, DT$tag)),]
-        DT[,tag.EAF:=EAF$eaf]
-    }
-    
-    if(!is.null(info)){
-        info <- lapply(info, function(i) i[DT$tag])
-        DT[,(paste("info",names(info), sep="_")):=info]
-    }
-    if(!is.null(nfsnps)){
-        DT[,n.fsnps:=nfsnps]
-    }        
-    if(!is.null(min.pval)){
-        DT[, min.p.fsnp:=min(min.pval$pvalue)]
-    }
-    
-    return(DT)
-}

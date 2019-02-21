@@ -131,7 +131,7 @@ rule star:
 
        
 rule total_gene_counts:
-    """ Calculate total gene counts from RNA-seq BAM files"""
+    """ Calculate total gene counts from RNA-seq BAM files, based on: counts for RNA-seq: http://www.bioconductor.org/help/workflows/rnaseqGene/#transcript-abundances-and-the-tximport-pipeline"""
     input:
         ebg=config['ebg'] ,
         bam=config['output_dir'] + "/STAR/{sample}/Aligned.sortedByCoord.out.bam"

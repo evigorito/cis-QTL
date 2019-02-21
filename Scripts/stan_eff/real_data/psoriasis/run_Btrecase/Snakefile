@@ -12,18 +12,44 @@ subworkflow InputPrep:
 ## Functions
 
 def gene_chrom(File=config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt", sep=" "):
-    """ Make a dictionary with keys gene and values chromosome from a file with first col gene_id and second col CHROM """
+    """ Makes a dictionary with keys gene and values chromosome from a file with first col gene_id and second col CHROM """
     data=pd.read_csv(File, sep=sep)
     keys=list(data['gene_id'])
     values=[str(x) for x in data['CHROM']]
     dic=dict(zip(keys,values))
     return dic
 
+def gene_list(File=config['output_dir'] + "/Btrecase/results/fisher_genes.txt",
+              sep=" "):
+    """ From a 1 col file with no headers makes a list, defaults to genes to re-run in Btrecase due to low min pvalue for Fisher test"""
+    data=pd.read_csv(File, sep=sep)
+    return list(data['Gene_id'])
+
+def geneName_geneID(File=config['output_dir'] + "/Btrecase/results/full.stan.summary.txt", sep=" "):
+    """ Makes a dictionary with keys gene_name and values gene_id """
+    data=pd.read_csv(File, sep=sep)
+    keys=list(data['Gene_name'])
+    values=[str(x) for x in data['Gene_id']]
+    dic=dict(zip(keys,values))
+    return dic
+
+
 ## Rules
+gene=gene_chrom().keys()
+gene_id=gene_list()
+#skin=set(InputPrep(info_samples()['Comment [Sample_source_name]']))
+#gene=['ENSG00000002330']
+chrom=list(range(1,23))
+
+gene_names=["FUT2", "ERAP1", "RASIP1", "IKBKE", "TIMELESS", "RMI2", "KRT6C", "SERPINB3", "GSTP1"]
 
 rule all:
     input:
-        "Scripts/report.pdf"
+        ##expand(config['output_dir'] + "/Btrecase/output99/{gene}/{gene}.{skin}.noGT.stan.summary.txt", gene=gene_chrom().keys(), skin=["Psoriasis_skin","normal_skin"])
+        #"Scripts/assoc_normal_pso_ci99.pdf"
+        expand(config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}/{SigGene}.2Tissues.summary.txt",
+               SigGene=[geneName_geneID()[g] for g in gene_names] )
+        
 
 rule html_table:
     """ Retrieve table 1 with psoriasis gwas hits, reference
@@ -83,3 +109,233 @@ rule report:
     script:
         "Scripts/RenderReport.R"
 
+rule select_genes:
+    """Select genes to run model. For DRG indicate colclass to read excel file. Select distance to choose proximal genes to gwas hits"""
+    input:
+        gwas=config['output_dir'] + "/pso_gwas/close_genes.txt",
+        drg=config['output_dir'] + "/pso_gwas/DRG_JID2014.xls"
+    params:
+        colclass=["character"]+["numeric" for i in range(7)],
+        dist=10**5,
+        RPKM=500
+    output:
+        config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt"
+    script:
+        "Scripts/genes2test.R"
+
+        
+rule run_btrecase:
+    input:
+        counts=InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}.txt", skin="Psoriasis_skin")),
+        
+        libsize=InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}_gc_lib_size.rds", skin="Psoriasis_skin")),
+        
+        eSNPs=lambda wildcards: InputPrep(config['output_dir'] + "/Btrecase/inputs/fSNP/chr"+ gene_chrom()[wildcards.gene] + ".fSNP.genes.txt"),
+        genecoord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        
+        vcf=lambda wildcards: InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/GT/chr" + gene_chrom()[wildcards.gene] +  ".ASE.{skin}.vcf.gz", skin="Psoriasis_skin")),
+        
+        leRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene] + ".legend.gz",
+        
+        hapRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene] + ".hap.gz"
+    params:
+        gene="{gene}",
+        chrom=lambda wildcards: gene_chrom()[wildcards.gene],
+        snps=5*10**5,
+        pop="EUR",
+        maf=0.05,
+        minAse=5,
+        minAseSnp=5,
+        minAseN=5,
+        tag=0.9,
+        info=0.3,
+        out=config['output_dir'] + "/Btrecase/output/{gene}"
+    threads:
+        16
+    output:
+        config['output_dir'] + "/Btrecase/output/{gene}/{gene}.noGT.stan.summary.txt"
+    script:
+        "Scripts/run_Btrecase.R"
+
+
+rule format_btrecase_output:
+    """ For each gene add column to stan summary with the r2between tag snps and gwas hit"""
+    input:
+        gwas=config['output_dir'] + "/pso_gwas/close_genes.txt",
+        drg=config['output_dir'] + "/pso_gwas/DRG_JID2014.xls",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        leRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.legend.gz", chrom=list(range(1,23))) ,
+        hapRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.hap.gz", chrom=list(range(1,23)))
+    log:
+       "logs/format_btrecase_output.log"
+    params:
+        direc=config['output_dir'] + "/Btrecase/output",
+        colclass=["character"]+["numeric" for i in range(7)]
+    threads:
+        16
+    output:
+        config['output_dir'] + "/Btrecase/results/full.stan.summary.txt"
+    script:
+        "Scripts/formatBtrecaseOutput.R"
+
+rule Btrecase_analysis:
+    """Analysis of associations using Btrecase"""
+    input:
+        stan=config['output_dir'] + "/Btrecase/results/full.stan.summary.txt",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        script="Scripts/assoc.R"
+    output:
+        "Scripts/assoc.pdf"
+    script:
+        "Scripts/RenderReport.R"
+
+        
+rule genes2rerunFisher:
+    """Get a list of genes with non-null associations and het fSNP min pvalue for Fisher test below cut-off to re-run removing fSNPs"""
+    input:
+        summary=config['output_dir'] + "/Btrecase/results/full.stan.summary.txt"
+    params:
+        p=10**-4
+    output:
+        fisher=config['output_dir'] + "/Btrecase/results/fisher_genes.txt"
+    script:
+        "Scripts/genes2rerunfisher.R"
+
+        
+rule run_btrecase2:
+    """Run associations for significant genes excluding fSNPs with p-value for Fisher test lower than cut-off in params p from rule fsnps_Fisher (10^-4)"""
+    input:
+        counts=InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}.txt", skin="Psoriasis_skin")),    
+        libsize=InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}_gc_lib_size.rds", skin="Psoriasis_skin")),
+        eSNPs=lambda wildcards: InputPrep(config['output_dir'] + "/Btrecase/inputs/fSNP/chr"+ gene_chrom()[wildcards.gene_id] + ".fSNP.genes.txt"),
+        genecoord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        vcf=lambda wildcards: InputPrep(expand(config['output_dir'] + "/Btrecase/inputs/GT/chr" + gene_chrom()[wildcards.gene_id] +  ".ASE.{skin}.vcf.gz", skin="Psoriasis_skin")),     
+        leRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene_id] + ".legend.gz",
+        
+        hapRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene_id] + ".hap.gz"
+    params:
+        gene="{gene_id}",
+        chrom=lambda wildcards: gene_chrom()[wildcards.gene_id],
+        snps=5*10**5,
+        pop="EUR",
+        maf=0.05,
+        minAse=5,
+        minAseSnp=5,
+        minAseN=5,
+        tag=0.9,
+        info=0.3,
+        pfsnp=10**-4,
+        prefix="{gene_id}.exfSNPp4",
+        out=config['output_dir'] + "/Btrecase/output/{gene_id}"
+    threads:
+        16
+    output:
+        config['output_dir'] + "/Btrecase/output/{gene_id}/{gene_id}.exfSNPp4.noGT.stan.summary.txt"
+    script:
+        "Scripts/run_Btrecase2.R"
+
+rule run_btrecase3:
+    """Run associations for significant genes excluding fSNPs with p-value for Fisher test lower than cut-off in params p from rule fsnps_Fisher (10^-4). Also run with 99%CI both healthy and psoriatic skin"""
+    input:
+        counts=InputPrep(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}.txt"),    
+        libsize=InputPrep(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}_gc_lib_size.rds"),
+        eSNPs=lambda wildcards: InputPrep(config['output_dir'] + "/Btrecase/inputs/fSNP/chr"+ gene_chrom()[wildcards.gene] + ".fSNP.genes.txt"),
+        genecoord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        vcf=lambda wildcards: InputPrep(config['output_dir'] + "/Btrecase/inputs/GT/chr" + gene_chrom()[wildcards.gene] +  ".ASE." + wildcards.skin + ".vcf.gz"),     
+        leRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene] + ".legend.gz",
+        
+        hapRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.gene] + ".hap.gz"
+    params:
+        gene="{gene}",
+        chrom=lambda wildcards: gene_chrom()[wildcards.gene],
+        snps=5*10**5,
+        pop="EUR",
+        maf=0.05,
+        minAse=5,
+        minAseSnp=5,
+        minAseN=5,
+        tag=0.9,
+        info=0.3,
+        prob=0.99,
+        pfsnp=10**-4,
+        out=config['output_dir'] + "/Btrecase/output99/{gene}"
+    threads:
+        16
+    output:
+        config['output_dir'] + "/Btrecase/output99/{gene}/{gene}.{skin}.noGT.stan.summary.txt"
+    script:
+        "Scripts/run_Btrecase3.R"
+
+rule skin_sum_r2_rsnps:
+    """ Merge stan summaries for all genes run in Psoriasis and Normal skin in btrecase3 rule. Also, for each gene get the r2 between rSNPs both for normal and psoriatic output
+Outputs: text file with stan summary, R list with each element a matrix of r2 rsnps for a gene"""
+    input:
+        pso95=config['output_dir'] + "/Btrecase/results/full.stan.summary.txt",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        leRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.legend.gz", chrom=list(range(1,23))) ,
+        hapRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.hap.gz", chrom=list(range(1,23)))
+    params:
+        out_dir=config['output_dir'] + "/Btrecase/output99"
+    threads:
+        16
+    log:
+       "logs/skin_sum_r2_rsnps.log"
+    output:
+        r2=config['output_dir'] + "/Btrecase/output99/objects/r2.rds",
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.R"
+    script:
+        "Scripts/skin_sumr2.R"
+    
+    
+
+        
+rule compare_btrecase_normal_pso:
+    """Compare output from normal vs psoriatic skin with CI99 and min pvalue for fisher test 10^-4. Get gene names and correlation with gwas snp from psoriasis analysis with CI95: /Btrecase/results/full.stan.summary.txt"""
+    input:
+        r2=config['output_dir'] + "/Btrecase/output99/objects/r2.rds",
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.R",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        script="Scripts/assoc_normal_pso_ci99.R"
+    params:
+        output_dir=config['output_dir'] + "/Btrecase/output99"
+    log:
+        "logs/compare_btrecase_normal_pso.log"
+    output:
+        "Scripts/assoc_normal_pso_ci99.pdf"
+    script:
+        "Scripts/RenderReport.R"
+
+rule run_btrecase2Tissues:
+    """Compare associations between normal and psoriasis skin in one model. Use genes with at least a significant association in one of the tissues"""
+    input:
+        counts=expand(InputPrep(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}.txt"), skin=["Psoriasis_skin","normal_skin"]   ),
+        libsize=expand(InputPrep(config['output_dir'] + "/Btrecase/inputs/Counts/{skin}_gc_lib_size.rds"), skin=["Psoriasis_skin","normal_skin"]),
+        eSNPs=lambda wildcards: InputPrep(config['output_dir'] + "/Btrecase/inputs/fSNP/chr"+ gene_chrom()[wildcards.SigGene] + ".fSNP.genes.txt"),
+        genecoord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        vcf=lambda wildcards: expand(InputPrep(config['output_dir'] + "/Btrecase/inputs/GT/chr" + gene_chrom()[wildcards.SigGene] +  ".ASE.{skin}.vcf.gz") , skin=["Psoriasis_skin","normal_skin"]),
+        leRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.SigGene] + ".legend.gz",
+        hapRef=lambda wildcards: config['RPpath'] + "/1000GP_Phase3_chr" + gene_chrom()[wildcards.SigGene] + ".hap.gz"
+    params:
+        gene="{SigGene}",
+        chrom=lambda wildcards: gene_chrom()[wildcards.SigGene],
+        skin=["Psoriasis_skin","normal_skin"],
+        snps=5*10**5,
+        pop="EUR",
+        maf=0.05,
+        minAse=5,
+        minAseSnp=5,
+        minAseN=5,
+        tag=0.9,
+        info=0.3,
+        prob=0.99,
+        pfsnp=10**-4,
+        out=config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}"
+    threads:
+        12
+    output:
+        config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}/{SigGene}.2Tissues.summary.txt"
+    script:
+        "Scripts/run_Btrecase2T.R"
+
+        
+##snakemake -j 100 -k --cluster-config clusterGPU.json --cluster "sbatch -A {cluster.account} -p {cluster.partition}  -n {cluster.n}   -t {cluster.time} --output {cluster.error} -J {cluster.job} "

@@ -80,7 +80,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
     ## create dt to collect rsnps excluded from analysis
     rsnps.ex <- data.table(id=character(), reason=character())
     if(is.numeric(snps)){
-        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene=gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
         if(is.character(cis_window)) stop(cis_window)
         gt.as <- vcf_w(vcf,chr, st=cis_window["start"], end=cis_window["end"], exclude="yes")
         if(is.character(gt.as)) stop(print(gt.as))
@@ -369,12 +369,13 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
 #' @param prefix optional prefix for saving tables, if NULL gene_id.eqtl will be used
 #' @param model whether to run trecase, trec or both, defaults to both
 #' @param prob  number p∈(0,1) indicating the desired probability mass to include in the intervals, defaults to 0.95
+#' @param ex.fsnp, character vector with pos:ref:alt for fsnps to exclude, defaults to NULL
 #' @keywords bayesian trecase known genotype regulatory snp
 #' @export
 #' @return data.table with summary of gene-snp associations. Saves the summary table in "out" dir as /out/prefix.main.txt. When using tags, saves /out/prefix.tags.lookup.txt. Saves a table of excluded rsnps from trecase model.
 #' btrecase.gt2()
 
-btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene.coord,vcf,le.file,h.file,population=c("EUR","AFR", "AMR", "EAS",  "SAS", "ALL"), nhets=5,min.ase=5,min.ase.het=5,tag.threshold=.9,q.test="no", out=".", prefix=NULL, model=c("both","trecase","trec"), prob=NULL) {
+btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene.coord,vcf,le.file,h.file,population=c("EUR","AFR", "AMR", "EAS",  "SAS", "ALL"), nhets=5,min.ase=5,min.ase.het=5,tag.threshold=.9,q.test="no", out=".", prefix=NULL, model=c("both","trecase","trec"), prob=NULL, ex.fsnp=NULL) {
     
     ## check inputs
     model <- match.arg(model)
@@ -400,7 +401,7 @@ btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gen
     ## Extract inputs for gene
 
     ## get counts 
-    counts.g <- fread(paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
+    counts.g <- fread(cmd=paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
     if(nrow(counts.g)==0) stop("Gene id is not found in count matrix")
     counts.g <- counts.g[,2:ncol(counts.g),with=F] ## removes gene_id
     ## get covariates and scale
@@ -416,7 +417,7 @@ btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gen
     ## create dt to collect rsnps excluded from analysis
     rsnps.ex <- data.table(id=character(), reason=character())
     if(is.numeric(snps)){
-        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        cis_window <- tryCatch({cl_coord(file=gene.coord,chr,gene=gene,cw=snps)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
         if(is.character(cis_window)) stop(cis_window)
         gt.as <- vcf_w(vcf,chr, st=cis_window["start"], end=cis_window["end"], exclude="yes")
         if(is.character(gt.as)) stop(print(gt.as))
@@ -432,7 +433,7 @@ btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gen
         w <- which(!is.na(pos))
         if(!length(w)) stop(cat("Invalid format for snps ", snps[w]))
         ## get gene start and end, ciswindow=0
-        st_end=tryCatch({cl_coord(gene.coord,chr,gene,cw=0)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
+        st_end=tryCatch({cl_coord(gene.coord,chr,gene=gene,cw=0)}, error=function(e) {paste("Gene " ,gene, "and chromosome", chr, "are incompatibles in gene.coord input")})
         if(is.character(st_end)) stop(st_end)
         ## construct cis-window with snps, making sure to include the whole gene
         m <- min(pos) < st_end[1]
@@ -484,109 +485,119 @@ btrecase.gt2 <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gen
 
     if(model=="trecase" | model=="both") {
     
-    ## get fSNPs (feature snps or exonic snps)
-    fsnps <- tryCatch({fread(paste("grep", gene, e.snps))}, error=function(e) {paste("No entry for gene",gene, "in",e.snps)})
+        ## get fSNPs (feature snps or exonic snps)
+        fsnps <- tryCatch({fread(cmd=paste("grep", gene, e.snps))}, error=function(e) {paste("No entry for gene",gene, "in",e.snps)})
     
-    if(isTRUE(grep("No entry",fsnps)==1)) { ## no fsnps
-        cat(fsnps, "\n Analysis will be done with total gene counts only")
-        rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs$id, reason=fsnps))
-    } else {     
-        fsnps[ ,id:= paste(V2, V4,V5, sep=":")]
-        fsnps <- fsnps[id %in% gt.as$id]
-        if(is.character(snps)){ ## analysis on pre-specified set of rsnps
-            gt.as <- gt.as[id %in% c(rec.rs$id,fsnps$id),] ## snps and fsnps only
-            ## make sure gt.as (here for fsnps) doesn't have missing values or unphased GT   
-            gt.qc <- vcf.gt.qc(gt.as)
-            if(sum(gt.qc[c(2,4)])!=0) stop(cat("Invalid GT field for some exonic snps and samples \n",paste(names(gt.qc), collapse=","), "\n",gt.qc, "\n","to remove snps or samples with wrong GT use vcf.gt.qc with appropiate arguments \n", "if all exonic snps are removed the analysis will be done with total counts only"))           
-        }
+        if(isTRUE(grep("No entry",fsnps)==1) | nrow(fsnps)==0 ) { ## no fsnps
+            cat(fsnps, "\n No fSNPS, analysis will be done with total gene counts only")
+            rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs$id, reason=paste("No entry for gene",gene, "in",e.snps)))
+        } else {     
+            fsnps[ ,id:= paste(V2, V4,V5, sep=":")]
+            fsnps <- fsnps[id %in% gt.as$id]
+            ## exclude fsnps if required
+            if(!is.null(ex.fsnp)){
+                fsnps <- fsnps[!id %in% ex.fsnp,]
+            }
+    
+            if(is.character(snps)){ ## analysis on pre-specified set of rsnps
+                gt.as <- gt.as[id %in% c(rec.rs$id,fsnps$id),] ## snps and fsnps only
+                ## make sure gt.as (here for fsnps) doesn't have missing values or unphased GT   
+                gt.qc <- vcf.gt.qc(gt.as)
+                if(sum(gt.qc[c(2,4)])!=0) stop(cat("Invalid GT field for some exonic snps and samples \n",paste(names(gt.qc), collapse=","), "\n",gt.qc, "\n","to remove snps or samples with wrong GT use vcf.gt.qc with appropiate arguments \n", "if all exonic snps are removed the analysis will be done with total counts only"))           
+            }
         
-        ## get info from reference panel 
-        ## matrix for reference panel haps
-        rp <- haps.range(file1=le.file,file2=h.file,cis_window,maf=0)
-        ## keep record of rsnps not in reference panel
-        w <- which(!rec.rs$id %in% rownames(rp))
-        rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs$id[w],reason=rep("Not in reference panel", length(w))))
-        rec.rs2 <- rec.rs[!w,] ## for full model, only rsnps in ref panel
-        w <- which(rownames(rp)%in%  rec.rs2$id)
-        if(length(w)!=0) {  ## proceed with full model, neg only for rsnps not in ref panel           
-            w=which(rownames(rp)%in% gt.as$id)
-            rp <- rp[w,, drop=FALSE]
-            ## make sure to select fsnps from reference panel
-            f.ase <- gt.as[id %in% fsnps$id,]
-            ##f.ase[, id:= paste(POS,REF,ALT, sep=":")]
-            f.ase <- f.ase[id %in% rownames(rp),]
-            if(nrow(f.ase)==0){
-                print("No fsnps ref panel")
-                rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs2$id, reason="No fsnps in reference panel"))
-            } else {
-                print(paste("Effective number of fSNPs:", nrow(f.ase)))
-                ## get counts per hap for fsnp
-                counts.ase <- tot.ase_counts(x=f.ase)
-                ##names(counts.ase) <- rec.rs2$id
+            ## get info from reference panel 
+            ## matrix for reference panel haps
+            rp <- haps.range(file1=le.file,file2=h.file,cis_window,maf=0)
+            ## keep record of rsnps not in reference panel
+            w <- which(!rec.rs$id %in% rownames(rp))
+            rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs$id[w],reason=rep("Not in reference panel", length(w))))
+            rec.rs2 <- rec.rs[!w,] ## for full model, only rsnps in ref panel
+            w <- which(rownames(rp)%in%  rec.rs2$id)
+            if(length(w)!=0) {  ## proceed with full model, neg only for rsnps not in ref panel           
+                w=which(rownames(rp)%in% gt.as$id)
+                rp <- rp[w,, drop=FALSE]
+                ## make sure to select fsnps from reference panel
+                f.ase <- gt.as[id %in% fsnps$id,]
+                ##f.ase[, id:= paste(POS,REF,ALT, sep=":")]
+                f.ase <- f.ase[id %in% rownames(rp),]
+                if(nrow(f.ase)==0){
+                    print("No fsnps ref panel")
+                    rsnps.ex <- rbind(rsnps.ex, data.table(id=rec.rs2$id, reason="No fsnps in reference panel"))
+                } else {
+                    print(paste("Effective number of fSNPs:", nrow(f.ase)))
+                    ## get counts per hap for fsnp
+                    counts.ase <- tot.ase_counts(x=f.ase)
+                    ##names(counts.ase) <- rec.rs2$id
 
-                ## select rsnps in ref panel for full model
-                rs.full <- rs[id %in% rec.rs2$id, which(names(rs) %in% names(rec.rs2)), with=F]
+                    ## select rsnps in ref panel for full model
+                    rs.full <- rs[id %in% rec.rs2$id, which(names(rs) %in% names(rec.rs2)), with=F]
                     
 ###################  run stan full model #######################
 ###### prepare stan inputs
                 ## reference panel fsnps and rsnps:
-                rp.f <- rp[f.ase$id,,drop=FALSE]
-                rp.r <- rp[rs.full$id,,drop=FALSE]
+                    rp.f <- rp[f.ase$id,,drop=FALSE]
+                    rp.r <- rp[rs.full$id,,drop=FALSE]
 
-                ## get haplotype counts from fsnps
+                    ## get haplotype counts from fsnps
 
-                stan.f <- stan.fsnp.noGT.eff(rp.f,f.ase,counts.ase, NB="no", min.ase, min.ase.het)
+                    stan.f <- stan.fsnp.noGT.eff(rp.f,f.ase,counts.ase, NB="no", min.ase, min.ase.het)
                 
-                if(!is.character(stan.f)) { ## proceed with full model
+                    if(!is.character(stan.f)) { ## proceed with full model
                     
-                    counts <- unlist(counts.g) ## to avoid repeating in mclapply
+                        counts <- unlist(counts.g) ## to avoid repeating in mclapply
                     
-                    stan.in1<-mclapply(rs.full$id, function(i) stan.trecase.eff2(counts, rp.1r=rp.r[i,,drop=FALSE], rp.f, f.ase, rs.hap=rs.full[id==i,], rec.rsnp=rec.rs2[id==i,], stan.f,min.ase, min.ase.het))
+                        stan.in1<-mclapply(rs.full$id, function(i) stan.trecase.eff2(counts, rp.1r=rp.r[i,,drop=FALSE], rp.f, f.ase, rs.hap=rs.full[id==i,], rec.rsnp=rec.rs2[id==i,], stan.f,min.ase, min.ase.het))
                     
-                    names(stan.in1) <- rs.full$id
+                        names(stan.in1) <- rs.full$id
 
-                    ## remove rsnps with not sufficient ase, min.ase.hets (haplotypes with fsnps not compatible with reference panel)
-                    w <- sapply(stan.in1, is.character)
-                    if(any(w)){
-                        rsnps.ex <- rbind(rsnps.ex,data.table(id=rs.full$id[w], reason="Not enough het individuals with sufficient ase counts or Hap not in reference panel"))   
+                        ## remove rsnps with not sufficient ase, min.ase.hets (haplotypes with fsnps not compatible with reference panel)
+                        w <- sapply(stan.in1, is.character)
+                        if(any(w)){
+                            rsnps.ex <- rbind(rsnps.ex,data.table(id=rs.full$id[w], reason="Not enough het individuals with sufficient ase counts or Hap not in reference panel"))   
                         
-                        stan.in1 <- stan.in1[!w]
+                            stan.in1 <- stan.in1[!w]
+                        }
+                        if(length(stan.in1) >= 1){
+                        
+                            ## save stan.in1 to qc
+                            if(is.null(prefix)) {
+                                saveRDS(stan.in1, paste0(out,"/",gene,".GT.stan1.input.rds"))
+                            } else{
+                                saveRDS(stan.in1, paste0(out,"/",prefix,".GT.stan1.input.rds"))
+                            }
+                        
+                        
+                            stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff2(i, covar=covariates))
+
+                            mod <- stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
+                            stan.full <-  mclapply(1:length(stan.in2),
+                                                   function (i) {
+                                                       if(is.null(prob)){
+                                                           
+                                                           s <- summary(sampling(mod,data=stan.in2[[i]], cores=1, refresh=0), pars='bj', use_cache=F)$summary
+                                                       } else {
+                                                           
+                                                           s <- summary(sampling(mod,data=stan.in2[[i]], cores=1, refresh=0), pars='bj', use_cache=F, probs=probs)$summary
+                                                       }
+                                                       unload.ddl(mod) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
+                                                       return(s)
+                                                   })
+                            names(stan.full) <- names(stan.in1)
+                            ## count number of hets with sufficient ase counts to input in final report
+                            ASE.hets <- sapply(stan.in1, function(i) nrow(i$gm[abs(g.ase)==1,]))
+                            ## get eaf for tags run in model
+                            eaf.t <- snp.eaf(le.file,names(stan.full),population)
+                            full.sum <- stan.bt(x=stan.full,y= NULL,rtag=r.tag,model="trec-ase", nhets=rec.rs2[id%in% names(stan.full),nhet],ASE.het=ASE.hets,gene=gene, EAF=eaf.t, nfsnps=nchar(unlist(strsplit(colnames(stan.f$n[[1]]), ","))[1]), probs=probs )
+                        
+                        } ## closing from failed stan.in1
+                    } else {  ## all rsnps will fail because stan .f failed
+                        rsnps.ex <- rbind(rsnps.ex,data.table(id=rs.full$id,  reason=stan.f))   
                     }
-                    if(length(stan.in1) >= 1){
-                        
-                        ## save stan.in1 to qc
-                        ##saveRDS(stan.in1, paste0(out,"/",gene,".GT.stan1.input.rds"))
-                        
-                        stan.in2 <- lapply(stan.in1, function(i) in.neg.beta.prob.eff2(i, covar=covariates))
-
-                        mod <- stan_model('/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/neg.beta.prob.phasing.priors.eff2.stan')
-                        stan.full <-  mclapply(1:length(stan.in2),
-                                               function (i) {
-                                                   if(is.null(prob)){
-                                                     
-                                                       s <- summary(sampling(mod,data=stan.in2[[i]], cores=1, refresh=0), pars='bj', use_cache=F)$summary
-                                                   } else {
-                                                       
-                                                       s <- summary(sampling(mod,data=stan.in2[[i]], cores=1, refresh=0), pars='bj', use_cache=F, probs=probs)$summary
-                                                   }
-                                                   unload.ddl(mod) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
-                                                   return(s)
-                                               })
-                        names(stan.full) <- names(stan.in1)
-                        ## count number of hets with sufficient ase counts to input in final report
-                        ASE.hets <- sapply(stan.in1, function(i) nrow(i$gm[abs(g.ase)==1,]))
-                        ## get eaf for tags run in model
-                        eaf.t <- snp.eaf(le.file,names(stan.full),population)
-                        full.sum <- stan.bt(x=stan.full,y= NULL,rtag=r.tag,model="trec-ase", nhets=rec.rs2[id%in% names(stan.full),nhet],ASE.het=ASE.hets,gene=gene, EAF=eaf.t, nfsnps=nchar(unlist(strsplit(colnames(stan.f$n[[1]]), ","))[1]), probs=probs )
-                        
-                    } ## closing from failed stan.in1
-                } else {  ## all rsnps will fail because stan .f failed
-                    rsnps.ex <- rbind(rsnps.ex,data.table(id=rs.full$id,  reason=stan.f))   
-                }
-                ## closing from failed stan.f
-            } ## closing from no fsnps in ref panel
-        } ## closing from rsnps in ref panel
-    } ## closing from fsnps in gene
+                    ## closing from failed stan.f
+                } ## closing from no fsnps in ref panel
+            } ## closing from rsnps in ref panel
+        } ## closing from fsnps in gene
         
         if(model == "trecase") {
             if(nrow(rsnps.ex)){
