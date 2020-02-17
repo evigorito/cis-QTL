@@ -16,13 +16,13 @@ from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
 
 HTTP = HTTPRemoteProvider()
 
-def info_samples():
+def info_samples(s=config['sample_meta']):
     """
     Gets sample info including names and fastq paths from the meta data file in array express. 
     input: full file name
-    output dictionary with 
+    output: data frame with sample meta data
     """
-    data = pd.read_csv(config['sample_meta'], sep="\t")
+    data = pd.read_csv(s, sep="\t")
     return data
 
 def dic_samples(var):
@@ -34,13 +34,6 @@ def dic_samples(var):
     return dic
      
 
-# rule all:
-#     """ Downloads matadata for psoriasis RNAseq."""
-#     input:
-#         HTTP.remote("www.ebi.ac.uk/arrayexpress/files/E-GEOD-54456/E-GEOD-54456.sdrf.txt", keep_local=True)
-#     run:
-#         outputName =os.path.join(config['output_dir'] + "/sample_info", os.path.basename(input[0]))
-#         shell("mv {input} {outputName} ")
 
 
 
@@ -53,8 +46,20 @@ pd_ex=info_samples()[~info_samples()['Comment [ENA_RUN]'].isin(['SRR1146116','SR
 rule all:
     input:
         #expand(config['output_dir'] + "/ASE/{sample}.chr{chrom}.ASE.vcf.gz", chrom=list(range(1,23)) , sample=pd_ex['Comment [ENA_RUN]'])
-        expand(config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.genes.txt", chrom=list(range(1,23)) )
+        #expand(config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.genes.txt", chrom=list(range(1,23)) )
+        expand(config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.unique.genes.txt", chrom=list(range(1,23)) )
+
+
         
+rule down:
+    """ Downloads metadata for psoriasis RNAseq."""
+    input:
+        HTTP.remote("www.ebi.ac.uk/arrayexpress/files/E-GEOD-54456/E-GEOD-54456.sdrf.txt", keep_local=True)
+    run:
+        outputName =os.path.join(config['output_dir'] + "/sample_info", os.path.basename(input[0]))
+        shell("mv {input} {outputName} ")
+
+
         
 rule fastq_down:
     """ Downloads fastq files. Input is not directly used but is necessary to have the rule working
@@ -145,7 +150,7 @@ rule total_gene_counts:
         "Scripts/total_gene_counts.R"
 
 rule gene_info:
-    """Get per gene info: start, end, chrom, GC percentage and longest transcript length"""
+    """Get per gene info: start, end, chrom, longest transcript length and GC percentage """
     input:
         config['ref_gtf']
     output:
@@ -280,7 +285,7 @@ rule shapeit_in:
          "cat {input.body} >> {output.vcf} ; "
          
 rule shapeit_out:
-    """Phase GT using shapeit, I need to make a tmp vcf w/o missing values for each sample, convet output to vcf  """
+    """Phase GT using shapeit, I need to make a tmp vcf w/o missing values for each sample, convert output to vcf  """
     input:
         vcf=config['output_dir'] + "/shapeit_in/chr{chrom}.allsamples.vcf",
         refMap=config['RPpath'] + "/genetic_map_chr{chrom}_combined_b37.txt",
@@ -430,9 +435,18 @@ rule fSNP_coord:
         fsnps=config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.genes.txt"
     script:
         "Scripts/fSNP_coord.R"
+
+rule fSNP_unique:
+    """Get unique fSNPs per gene when no strand info is available"""
+    input:
+        fsnps=config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.genes.txt"
+    output:
+        ufsnps=config['output_dir'] + "/Btrecase/inputs/fSNP/chr{chrom}.fSNP.unique.genes.txt"
+    script:
+        "Scripts/fSNP_unique.R"
            
         
-## snakemake -j 100 -k --cluster-config cluster.json --cluster "sbatch -A {cluster.account} -p {cluster.partition}  -n {cluster.n}   -t {cluster.time} --output {cluster.error} -J {cluster.job} "
+# snakemake -j 100 -k --cluster-config cluster.json --cluster "sbatch -A {cluster.account} -p {cluster.partition}  -n {cluster.n}   -t {cluster.time} --output {cluster.error} -J {cluster.job} "
 
 
 #snakemake -p -n     # testing (printing) commands, can add --quiet

@@ -1376,35 +1376,57 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
         l <- x
     }    
     DT <- data.table(do.call(rbind, l))
-    ## convert to log2
-    DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[c(1:8)]]
-    DT[,names(DT)[c(1:8)] := DT2]
-    ## add col for whether 95%CI contains the null (0)
+    ## convert to log2 all cols except n_eff and Rhat
+    cols.ex <- c("n_eff", "Rhat", "post.prop.neg")
+    ## old version
+    ##DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[c(1:8)]]
+    ##DT[,names(DT)[c(1:8)] := DT2]
+    
+    ## new version allowing extra probs cols
+    DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[!names(DT) %in% cols.ex] ]
+    DT[,names(DT)[!names(DT) %in% cols.ex] := DT2]
+    
+    ## add col for whether 95-99%CI contains the null (0)
+
     if(is.null(probs)){
-        DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
-        ## add col with distance to the null if null="no" or length CI if null="yes"
-        DT[null=="no" & `2.5%` >0 ,d:= `2.5%`][null=="no" & `2.5%` <0 ,d:= -`97.5%`][null=="yes",d:=abs(`2.5%` - `97.5%`)]
 
-    } else { 
-        exp1 <- paste0("`",probs*100, "%","`")
-        exp2 <- paste(c("<", ">"),0)
-        tmp <- outer(exp1,exp2 , paste) ## all combinations
-        tmp2 <- apply(tmp,2, paste, collapse=" & ") ##vector with expressions for defining null
-        DT[, null:="yes"][eval(parse(text=tmp2[1])), null:="no"][eval(parse(text=tmp2[2])), null:="no"]       
+        ex.prob <- c(0.025, 0.975)
+        ## DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
+        ## ## add col with distance to the null if null="no" or length CI if null="yes"
+        ## DT[null=="no" & `2.5%` >0 ,d:= `2.5%`][null=="no" & `2.5%` <0 ,d:= -`97.5%`][null=="yes",d:=abs(`2.5%` - `97.5%`)]
 
-        DT[null=="no" & eval(parse(text=tmp[1,2])) ,d:= eval(parse(text=exp1[1])) ][null=="no" &  eval(parse(text=tmp[1,1])) ,d:= -as.numeric(eval(parse(text=exp1[2])))][null=="yes",d:=abs(as.numeric(eval(parse(text=exp1[1]))) - as.numeric(eval(parse(text=exp1[2]))))]
+    } else {
+        ## take the extremes of probs
+        ex.prob <- probs[c(1,length(probs))]
     }
     
-    DT[, d.aux:=d][null=="yes", d.aux:=-d] ## to sort length CI in ascending order    
-    if(!is.null(rtag)){
-        DT[,tag:=names(x)]
-    } else {
-        DT[,SNP:=names(x)]
-    }
+    exp1 <- paste0("`",ex.prob*100, "%","`")
+    ##exp2 <- paste(c("<", ">"),0)
+    ##tmp <- outer(exp1,exp2 , paste) ## all combinations
+    ##tmp2 <- apply(tmp,2, paste, collapse=" & ") ##vector with expressions for defining null
+    exp <- paste0("sign(", exp1[1],") == sign(", exp1[2], ")")
+
+    null <- paste("null", 100*diff(ex.prob), sep=".")
+    DT[, eval(null):="yes"][eval(parse(text=exp)), eval(null):="no"]
+    
+    ##DT[, null:="yes"][eval(parse(text=tmp2[1])), null:="no"][eval(parse(text=tmp2[2])), null:="no"]       
+    DT[get(null)=="no" & eval(parse(text=exp1[1])) >0, d:= eval(parse(text=exp1[1])) ]
+    DT[get(null)=="no" & eval(parse(text=exp1[1])) <0, d:= -eval(parse(text=exp1[2])) ]
+    DT[get(null)=="yes", d:=abs(eval(parse(text=exp1[1])) - eval(parse(text=exp1[2])) )]
+    
+    ##DT[null=="no" & eval(parse(text=tmp[1,2])) ,d:= eval(parse(text=exp1[1])) ][null=="no" &  eval(parse(text=tmp[1,1])) ,d:= -as.numeric(eval(parse(text=exp1[2])))][null=="yes",d:=abs(as.numeric(eval(parse(text=exp1[1]))) - as.numeric(eval(parse(text=exp1[2]))))]
+
+    cols.ex  <- c(null, cols.ex)
+    ## add log2 to relevant cols
+    setnames(DT , names(DT)[!names(DT) %in% cols.ex] , paste0("log2_aFC_", names(DT)[!names(DT) %in% cols.ex]))
+    ## DT[, d.aux:=d][get(null)=="yes", d.aux:=-d] ## to sort length CI in ascending order
+
+    DT[,tag:=names(x)]
+    
     ##DT[,d.aux:=NULL]
-    setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log2_aFC_", names(DT)[1:(ncol(DT)-1)]))
-    DT[,Gene_id:=gene]    
-    setcolorder(DT , names(DT)[c(15,14,1:8,11:13,9:10)])
+    ##setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log2_aFC_", names(DT)[1:(ncol(DT)-1)]))
+    DT[,Gene_id:=gene]
+    setcolorder(DT , c("Gene_id", "tag", grep("log2", names(DT) , value=T), cols.ex ))  ## names(DT)[c(15,14,1:8,11:13,9:10)])
     DT[,model:=model]
     DT[,nhets:=nhets]
     DT[,ASE.hets:=ASE.het]
@@ -1425,8 +1447,21 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
     if(!is.null(min.pval)){
         DT[, min.p.fsnp:=min(min.pval$pvalue)]
     }
+    if(is.null(rtag)){
+      setnames(DT, grep("tag", names(DT), value=T), gsub("tag", "SNP", grep("tag", names(DT), value=T)))
+        DT[,SNP:=names(x)]
+    }
+    setorderv(DT, c(null, "log2_aFC_d"), order=c(1,-1))
+
+    ## if post.prop.neg in DT (proportion of the posterior that is <0) then calculate PEP (proportion of posterior of opposite sign to bj)
+
+    if("post.prop.neg" %in% names(DT)){
+        DT[, PEP:=post.prop.neg][log2_aFC_mean <0, PEP:=1-post.prop.neg]
+        DT[, post.prop.neg:=NULL]
+           
+    }
     
-    setorder(DT,log2_aFC_null,-log2_aFC_d)
+    
     return(DT)
 }
 
@@ -1435,7 +1470,7 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
 #'
 #' This function allows you to extract the parameter information from a list of stan summaries (output from stan.many.sim)
 #' @param x list of summaries
-#' @param rtag optional argument,whether snps were grouped using tag function
+#' @param rtag optional argument,whether snps were grouped using tag function, defaults to yes
 #' @param gene gene id of gene under study
 #' @param EAF, data table with snp and eaf for tag snps, output from snp.eaf (real.data.R), defaults to NULL
 #' @param info, named vector with info type score for tag snp, names snp_id, defaults to NULL
@@ -1444,7 +1479,7 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
 #' @param probs extremes for the posterior probability mass, defaults to 2.5 and 97.5
 #' @keywords stan multiple snps 2 tissues
 #' @export
-#' @return DT with formatted data
+#' @return DT with formated data
 #' stan.bt()
 
 stan.2T <- function(x,rtag=NULL, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval=NULL, probs=NULL){
@@ -1476,3 +1511,79 @@ stan.2T <- function(x,rtag=NULL, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval
     
     return(DT)
 }
+
+
+#' Add null column to stan data table
+#'
+#' @param dt with summary
+#' @param y parameter to extract from summary, NULL if already extracted
+#' @param probs extremes for the posterior probability mass, defaults to 2.5 and 97.5
+#' @param suffix character wwith suffix for CI col, defaults to NULL
+#' @keywords stan null
+#' @export
+#' @return DT with extra col
+#' add.null()
+
+add.null <- function(dt, probs=NULL, suffix=NULL){
+    if(is.null(probs)){
+        ex.prob <- c(0.025, 0.975)
+
+    } else {
+        ## take the extremes of probs
+        ex.prob <- probs[c(1,length(probs))]
+    }
+    if(is.null(suffix)) {
+        exp1 <- paste0("`log2_aFC_",ex.prob*100, "%`")
+        null <- paste("null", 100*diff(ex.prob), sep=".")
+    } else {
+        exp1 <- paste0("`log2_aFC_",ex.prob*100, "%",suffix,"`")
+        null <- paste0("null.", 100*diff(ex.prob), suffix)
+    }
+  
+    exp <- paste0("sign(", exp1[1],") == sign(", exp1[2], ")")
+
+    
+    dt[, eval(null):="yes"][eval(parse(text=exp)), eval(null):="no"]
+
+    return(dt)
+}
+
+    
+#' Format output from simulations to make summary table for paper
+#'
+#' @param sim.dir path to dir with simulations, as prepared in btrecase.eff.R in rsim_phat.pop.refpanel.sample.diff.sh
+#' @param sim.pat pattern to identify files
+#' @keywords format simulations output
+#' @export
+#' @return DT in wide format to make table
+#' sim.for()
+
+sim.for <- function(sim.dir, sim.pat){
+    suf <- sapply(sim.pat, function(i) gsub(".*_", "", i))
+
+    f.hf <- lapply(sim.pat, function(i) list.files(path=sim.dir, pattern =  i, full.names = TRUE))
+    f.hf <- lapply(f.hf, function(i) i[grep("input",x=i,invert=T)]) ## exclude input files
+
+    res.hf <- lapply(f.hf, function(i) lapply(i, readRDS))
+    n.res.hf <- sapply(f.hf[[1]], function(j) gsub(".*05_","",gsub("\\.rds","",j))) ## same prefix
+    res.hf <- setNames(lapply(res.hf, setNames,n.res.hf), paste0(suf))
+
+    sim.hf <- lapply(res.hf, function(i) stan.sum(stan.cis.mult(i, x=log(1.5))))
+    names(sim.hf) <-c("BI-ASE", "ASE")
+    dt <- rbindlist(lapply(sim.hf, function(i) {
+        dt <- data.table(i, keep.rownames=T)
+        re <- lapply(n.res.hf, function(j) grep(j, dt$rn))
+        names(re) <- n.res.hf
+        tmp <- lapply(names(re), function(j) dt[re[[j]], Pre:=j])
+        tmp <- lapply(names(re), function(j) dt[re[[j]], Est:=gsub(paste0(j,"[[:punct:]]"), "", rn)])
+        return(dt)
+    }
+    ), idcol="Model")
+
+    ## Transform to wide and format
+
+    dt <- data.table(dcast(dt, Est + Model ~ Pre, value.var="V1"))
+
+    return(dt)
+}
+

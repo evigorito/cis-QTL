@@ -65,7 +65,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
     ## Extract inputs for gene
 
     ## get counts 
-    counts.g <- fread(paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
+    counts.g <- fread(cmd=paste("grep -e gene_id -e ",gene,counts.f), header=TRUE)
     if(nrow(counts.g)==0) stop("Gene id is not found in count matrix")
     ## get covariates and scale
     if(covariates !=1){
@@ -149,7 +149,7 @@ btrecase.gt <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snps,gene
     if(model=="trecase" | model=="both") {
     
     ## get fSNPs (feature snps or exonic snps)
-    fsnps <- tryCatch({fread(paste("grep", gene, e.snps))}, error=function(e) {paste("No entry for gene",gene, "in",e.snps)})
+    fsnps <- tryCatch({fread(cmd=paste("grep", gene, e.snps))}, error=function(e) {paste("No entry for gene",gene, "in",e.snps)})
     
     if(isTRUE(grep("No entry",fsnps)==1)) { ## no fsnps
         cat(fsnps, "\n Analysis will be done with total gene counts only")

@@ -16,7 +16,7 @@
     "ref_gtf" :  "/home/ev250/rds/hpc-work/reference_genome/built37/Homo_sapiens.GRCh37.87.gtf",
     "indices" : "/mrc-bsu/scratch/ev250/reference_genome/built37/indices",
 
-    # path to save file for exon by gene rds object to use for counting reads, or path to file if already made.
+    # name to save file for exon by gene rds object to use for counting reads, or file name if already made.
 
     "ebg" : "/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_ebg.rds",
 

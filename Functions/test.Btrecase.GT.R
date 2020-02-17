@@ -326,6 +326,12 @@ ex=fread("/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/num.snps.bot
 
 
 gene="ENSG00000100243"
+gene="ENSG00000128340"
+gene="ENSG00000093072"
+gene = "ENSG00000100284"
+gene="ENSG00000223350"
+
+
 chr=22
 snps=5*10^5
 counts.f='/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt'

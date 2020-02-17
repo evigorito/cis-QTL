@@ -786,7 +786,7 @@ btrecase.nogt.rna <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
     if(covariates !=1){
         covariates <- readRDS(covariates)
         if(!(is.matrix(covariates))) stop("Covariates file is not a matrix")
-        if(nrow(covariates)!=ncol(counts.g))  stop(cat("Number of individuals in covariates matrix:", nrow(covariates), "\n Number of individuals in gene counts", ncol(counts.g)-1, "\n please adjust"))
+        if(nrow(covariates)!=ncol(counts.g))  stop(cat("Number of individuals in covariates matrix:", nrow(covariates), "\n Number of individuals in gene counts", ncol(counts.g), "\n please adjust"))
         ## scale
         covariates <- apply(covariates,2,scale,center=TRUE,scale=TRUE)
         rownames(covariates)=names(counts.g)

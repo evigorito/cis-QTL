@@ -288,7 +288,7 @@ colnames(sum.75.mat) <- hap
 
 cis.75 <- lapply(hap.75, function(i) stan.cis.mult(i, x=log(1.5)))
 
-#### Simulations with population H=10K. Then sampling from there reference panel n=500 and sample n=100. Calculate haps with population p(H), reference panel p(H) and sample p(H).
+#### Simulations with population H=10K. Then sampling from there a reference panel n=500 and a sample n=100. Calculate haps with population p(H), reference panel p(H) and sample p(H).
 
 ## run in rsim_phat.pop.refpanel.sample.sh and rsim_phat.pop.refpanel.sample.R
 
@@ -537,10 +537,10 @@ colnames(sim.b.mat) <- names(res.b)
 ## run in rsim_phat.pop.refpanel.sample.diff.sh calling
 
 ##full model
-##srun -n1 Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.R 100000 100 500 50 0.2 $maf1 0.1 1 diff
+##Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.R 100000 100 500 50 0.2 $maf1 0.1 1 diff
 
 ## beta only
-##srun -n1 Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.beta.R 100000 100 500 50 0.2 $maf1 0.1 1 diff
+##Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.beta.R 100000 100 500 50 0.2 $maf1 0.1 1 diff
 
 pre <- c("pop", "beta")
 
@@ -580,7 +580,13 @@ sim.hf.mat <- do.call(cbind,sim.hf)
 colnames(sim.hf.mat) <- names(sim.hf)
 
 
+## Running same simulations as above but with diff0 to have a reference. Code aborted when running stan with fixed haplotypes, so it was re-run but only for fixed hap. 
 
+##full model
+##Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.R 100000 100 500 50 0.2 $maf1 0 1 diff
+
+## beta only
+##Rscript /home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/rsim_phat.pop.refpanel.sample.diff.freqHpop.beta.R 100000 100 500 50 0.2 $maf1 0 1 diff
 
 
 

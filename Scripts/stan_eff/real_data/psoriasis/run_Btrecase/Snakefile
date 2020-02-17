@@ -5,10 +5,14 @@
 shell.prefix("source ~/.bashrc; ")
 import pandas as pd
 configfile: "config.yaml"
+import os
+from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+
+HTTP = HTTPRemoteProvider()          
 
 subworkflow InputPrep:
     workdir: "/home/ev250/Bayesian_inf/trecase/Scripts/stan_eff/real_data/psoriasis"
-
+             
 ## Functions
 
 def gene_chrom(File=config['output_dir'] + "/Btrecase/inputs/gene_inputs/genes2test.txt", sep=" "):
@@ -43,13 +47,14 @@ chrom=list(range(1,23))
 
 gene_names=["FUT2", "ERAP1", "RASIP1", "IKBKE", "TIMELESS", "RMI2", "KRT6C", "SERPINB3", "GSTP1"]
 
-rule all:
+rule all2:
     input:
+        #config['output_dir'] + "/Btrecase/results/tables_fig/Figure3.png"
         ##expand(config['output_dir'] + "/Btrecase/output99/{gene}/{gene}.{skin}.noGT.stan.summary.txt", gene=gene_chrom().keys(), skin=["Psoriasis_skin","normal_skin"])
-        #"Scripts/assoc_normal_pso_ci99.pdf"
-        expand(config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}/{SigGene}.2Tissues.summary.txt",
-               SigGene=[geneName_geneID()[g] for g in gene_names] )
-        
+        "Scripts/assoc_normal_pso_ci99.pdf"
+        #"Scripts/2Treport.pdf"
+        #expand(config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}.2Tissues.summary.txt",
+        #      SigGene=[geneName_geneID()[g] for g in gene_names] )
 
 rule html_table:
     """ Retrieve table 1 with psoriasis gwas hits, reference
@@ -267,7 +272,7 @@ rule run_btrecase3:
         "Scripts/run_Btrecase3.R"
 
 rule skin_sum_r2_rsnps:
-    """ Merge stan summaries for all genes run in Psoriasis and Normal skin in btrecase3 rule. Also, for each gene get the r2 between rSNPs both for normal and psoriatic output
+    """ Merge stan summaries for all genes run in Psoriasis and Normal skin in btrecase3 rule. Also, for each gene get the r2 between rSNPs both for normal and psoriatic output. Also identify tags for fSNPs and include if in same direction
 Outputs: text file with stan summary, R list with each element a matrix of r2 rsnps for a gene"""
     input:
         pso95=config['output_dir'] + "/Btrecase/results/full.stan.summary.txt",
@@ -275,25 +280,25 @@ Outputs: text file with stan summary, R list with each element a matrix of r2 rs
         leRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.legend.gz", chrom=list(range(1,23))) ,
         hapRef=expand(config['RPpath'] + "/1000GP_Phase3_chr{chrom}.hap.gz", chrom=list(range(1,23)))
     params:
-        out_dir=config['output_dir'] + "/Btrecase/output99"
+        out_dir=config['output_dir'] + "/Btrecase/output99",
     threads:
         16
     log:
        "logs/skin_sum_r2_rsnps.log"
     output:
         r2=config['output_dir'] + "/Btrecase/output99/objects/r2.rds",
-        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.R"
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.txt"
     script:
         "Scripts/skin_sumr2.R"
-    
-    
 
+ 
+        
         
 rule compare_btrecase_normal_pso:
     """Compare output from normal vs psoriatic skin with CI99 and min pvalue for fisher test 10^-4. Get gene names and correlation with gwas snp from psoriasis analysis with CI95: /Btrecase/results/full.stan.summary.txt"""
     input:
         r2=config['output_dir'] + "/Btrecase/output99/objects/r2.rds",
-        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.R",
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.txt",    
         gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
         script="Scripts/assoc_normal_pso_ci99.R"
     params:
@@ -303,6 +308,7 @@ rule compare_btrecase_normal_pso:
     output:
         "Scripts/assoc_normal_pso_ci99.pdf"
     script:
+        #"Scripts/assoc_normal_pso_ci99.R"
         "Scripts/RenderReport.R"
 
 rule run_btrecase2Tissues:
@@ -329,13 +335,74 @@ rule run_btrecase2Tissues:
         info=0.3,
         prob=0.99,
         pfsnp=10**-4,
-        out=config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}"
+        out=config['output_dir'] + "/Btrecase/2Tissues/output99"
     threads:
         12
     output:
-        config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}/{SigGene}.2Tissues.summary.txt"
+        config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}.2Tissues.summary.txt"
     script:
         "Scripts/run_Btrecase2T.R"
+
+rule down_psoQTL:
+    """ Donwload psoriasis eQTL results from http://csg.sph.umich.edu/junding/eQTL/TableDownload/ to compare with my results. Not sure very useful, or lot of work as SNPs are not in built 37"""
+    input:
+        HTTP.remote("csg.sph.umich.edu/junding/eQTL/TableDownload/{ind}subj_p1E-5_annotate_allcis_1Mb.tbl", keep_local=True)
+    params:
+        out=config['output_dir'] + "/pso_eQTL"
+    output:
+        config['output_dir'] + "/pso_eQTL/{ind}subj_p1E-5_annotate_allcis_1Mb.tbl"
+    run:
+        shell("mv {input} {params.out} ")
+
+rule prepare2T_report:
+    """Matches SNPs run in stan2T with gtex. Also indicate which tag corresponds to an fSNP"""
+    input:
+        stan_sum2T=expand(config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}.2Tissues.summary.txt", SigGene=[geneName_geneID()[g] for g in gene_names]) ,
+        stan_tags2T=expand(config['output_dir'] + "/Btrecase/2Tissues/output99/{SigGene}.noGT.eqtl.tags.lookup.txt", SigGene=[geneName_geneID()[g] for g in gene_names])
+    params:
+        gtex_dir=config['output_dir'] + "/eQTL_gtex"
+    output:
+        summary=config['output_dir'] + "/Btrecase/results/normal_pso_JointModel_summary.txt"
+    script:
+        "Scripts/prepare2Treport.R" 
+        
+        
+rule btrecase2T_report:
+    """Compare output from normal vs psoriatic skin run in one model"""
+    input:
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.txt",
+        stan_sum2T=config['output_dir'] + "/Btrecase/results/normal_pso_JointModel_summary.txt",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt"),
+        eqtl_pso=expand(config['output_dir'] + "/pso_eQTL/{ind}subj_p1E-5_annotate_allcis_1Mb.tbl",
+                        ind=["NN57", "PP53"]),
+        script="Scripts/2Treport.R"
+    params:
+        output_dir=config['output_dir'] + "/Btrecase/2Tissues/output99"
+    output:
+        "Scripts/2Treport.pdf"
+    script:
+        #"Scripts/2Treport.R"
+        "Scripts/RenderReport.R"
+
+rule figures4paper:
+    """Using stan output make figures for paper, custumized parameters are needed for getting ggbio gene labels in the right place """
+    input:
+        stan_sum=config['output_dir'] + "/Btrecase/results/normal_pso_ci99_summary.txt",
+        stan_sum2T=config['output_dir'] + "/Btrecase/results/normal_pso_JointModel_summary.txt",
+        gene_coord=InputPrep(config['output_dir'] + "/Btrecase/inputs/gene_inputs/gene_info.txt")      
+    params:
+        genes2follow=["ERAP1", "SERPINB3"],
+        y_ERAP1=[0.6,1.6],
+        y_SERPINB3=[0.6, 1.4, 0.6, 1.6, 0.6],
+        w=3000,
+        tags_dir=config['output_dir'] + "/Btrecase/output99",
+        out_dir=config['output_dir'] + "/Btrecase/results/tables_fig"
+    output:
+        normalVspsoAll=config['output_dir'] + "/Btrecase/results/tables_fig/allNormalPso.png",
+        fig3=config['output_dir'] + "/Btrecase/results/tables_fig/Figure3.png"
+    script:
+        "Scripts/figures4paper.R"
+
 
         
 ##snakemake -j 100 -k --cluster-config clusterGPU.json --cluster "sbatch -A {cluster.account} -p {cluster.partition}  -n {cluster.n}   -t {cluster.time} --output {cluster.error} -J {cluster.job} "

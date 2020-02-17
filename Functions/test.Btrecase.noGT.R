@@ -333,6 +333,7 @@ gene=  'ENSG00000070010' ## 2fsnps
 gene= "ENSG00000099995" ## sig results with noGTv1
 gene="ENSG00000100364" ## 16 fsnps, line 182, problematic
 gene="ENSG00000100243"
+gene='ENSG00000100056'
 chr=22
 snps=5*10^5
 counts.f='/mrc-bsu/scratch/ev250/EGEUV1/quant/RNA_counts/b37_filtered.raw_counts.txt'
@@ -368,6 +369,7 @@ vcf='/mrc-bsu/scratch/ev250/EGEUV1/quant/ASE/RNA/chr22.ASE.allsamples.vcf.gz'
 gene ="ENSG00000198792"
 ex.fsnp ="38615536:A:T"
 
+out <- '/mrc-bsu/scratch/ev250/EGEUV1/quant/refbiasBtrecase/testing'
 
 # out="/mrc-bsu/scratch/ev250/EGEUV1/quant/Btrecase/output/chr22/"
 # 

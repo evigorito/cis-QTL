@@ -528,3 +528,59 @@ log_sum_exp <- function(a){
     return(lse)
 }
 
+
+#' aux for testing code for stan neg.beta.noGT2.rsnp.prior02.refbias2.stan
+#'
+#' @param inp stan input for stan neg.beta.noGT2.rsnp.prior02.refbias2.stan
+#' @keywords qc for stan neg.beta.noGT2.rsnp.prior02.refbias2.stan
+#' @export
+#' @return 
+#' ngt.refbias()
+#' 
+ngt.refbias <- function(inp){
+    N <- inp$N
+    sNB <- inp$sNB
+    gNB <- inp$gNB
+    gase <- inp$gase
+    m <- inp$m
+    pH <- inp$pH
+    h2g <- inp$h2g
+    ASEi <- inp$ASEi
+    
+
+    Max = max(h2g);
+    pos = 1;  # to advance on NB terms
+    posl = 1; # to advance on ASE terms
+    ase = rep(10,Max);  # initialize ase vector to 0s to collect ase termns for each hap pair compatible with Gi=g */
+
+    ## initialise objects
+  
+    for(i in 1:N){
+        cat("i = ", i,"\n");
+        for (r in pos:(pos+sNB[i]-1)) { # genotype level, Gi=g
+            cat("gNB = ", gNB[r]," r = ", r, "\n");
+
+            if (ASEi[i,1] == 1){  #// ASE info
+                cat( " ase info \n");
+                for (x in 1:h2g[r]){  #// look at the haps compatibles with Gi=g
+
+                    cat("x = ",x, "\n");
+                    cat("gase = ", gase[posl], " ph = ", pH[posl], " m = ", m[ASEi[i,2]], "\n");
+                    ase[x]  <- posl
+
+                    posl = posl + 1;
+                }
+                cat(" ase" , ase, " sum ase = ", sum(ase[1:h2g[r]]), "\n" );
+            }
+        }
+        if(ASEi[i,1] == 0){ #// NO ASE, only NB terms for this ind
+            cat("i = ", i, " no ase info \n");
+        }
+
+        pos=pos+sNB[i];
+    }
+}
+
+          
+            
+ 

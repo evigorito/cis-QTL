@@ -162,15 +162,24 @@ vcf_w <- function(vcf,chr=NULL, st=NULL, end=NULL, samples=NULL, f.arg=NULL, qc=
         if(!is.null(qc)){
             return(gt.ase)
             } else {
-            
+                
                 ## recode names gt.ase to make it compatible with Cincinatti files and functions
                 names(gt.ase) <- gsub(":","_",names(gt.ase))
 
                 ## replace unphased data with "." missing value
-                gt.ase[gt.ase=="0/0" | gt.ase=="0/1" | gt.ase=="1/0" | gt.ase=="1/1"] <- "."
-
+                ##gt.ase[gt.ase=="0/0" | gt.ase=="0/1" | gt.ase=="1/0" | gt.ase=="1/1"] <- "."
+                for(col in grep("_GT", names(gt.ase))){
+                    set(gt.ase, i=grep("[0-1]/[0-1]", gt.ase[[col]]), j=col, value=".")
+                    }
+                
                 ## exclude  snps if homo or missing for all samples
-                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) setequal(unique(i),c("0|0", ".") ) | setequal(unique(i),c("1|1", ".")) |  setequal(unique(i),"0|0") | setequal(unique(i), ".") | setequal(unique(i),"1|1"))
+             
+                ex <- apply(gt.ase[,grep("_GT", names(gt.ase)), with=F], 1, function(i) {
+                    u <- unique(i)
+                    setequal(u,c("0|0", ".") ) | setequal(u,c("1|1", ".")) |  setequal(u,"0|0") | setequal(u, ".") | setequal(u,"1|1")
+                }
+                )
+          
 
                 ## this col will help to match snps with legend/hap reference panel
                 gt.ase[, id:= paste(POS, REF, ALT, sep=":")]
@@ -191,6 +200,30 @@ vcf_w <- function(vcf,chr=NULL, st=NULL, end=NULL, samples=NULL, f.arg=NULL, qc=
     
     }
 }
+
+## #' Extract GT  for a gene and recode
+## #'
+## #' This function allows you to extract GT  for a gene, wraper for cl_bcfq and vcf_cl plus some formatting, removes samples with missing data or unphased. also removes snps if homo or missing for all samples and recode to 0-2 scale
+## #' @param vcf full path to vcf
+## #' @param chr chromosome to extract, null for whole vcf
+## #' @param st start position to extract, null for whole vcf
+## #' @param end end position to extract, null for whole vcf
+## #' @param samples character vector with samples to extract, defaults=NULL
+## #' @param f.arg character vector with -f argument for bcftools query, defaults to GT and ASE
+## #' @param qc use function for qc purpose only
+## #' @param exclude whether to return a list with snps excluded from vcf (all homo or missing)
+## #' @keywords vcf fread
+## #' @export
+## #' @return data table with GT and ASE, unless !is.null(excluded), returns list with first element data table with GT and ASE and second element a data table with exluded snps.
+## #' rec_vcf()
+
+## rec_vcf <- function(vcf,chr=NULL, st=NULL, end=NULL, samples=NULL, f.arg=NULL, qc=NULL, exclude=NULL) {
+
+    
+
+    
+   
+
 
 
 #' Check if gt.ase, output from vcf_w has phased GT in GT field, can also save a new vcf with excluding wrong GT by snp or by sample, as required.
@@ -249,7 +282,7 @@ vcf.gt.qc <- function(gt.ase, exclude=c("snps","samples"), vcf.path, path=".", v
 #' get start and end of cis-window per gene to make a bcftools query from a vcf file
 #'
 #' This function allows you to write the command to extract GT and ASE for a region of a vcf
-#' @param file full path to file with gene coordinates, as prepared in inputs.R
+#' @param file full path to file with gene coordinates, as prepared in inputs.R 
 #' @param chr chromosome to extract
 #' @param gene gene id
 #' @param cw length of cis-window, defaults to 5*10^5
@@ -259,12 +292,15 @@ vcf.gt.qc <- function(gt.ase, exclude=c("snps","samples"), vcf.path, path=".", v
 #' cl_coord()
 
 cl_coord<- function(file,chr,chrCol=2,gene,stCol=4, endCol=5,cw=500000){
+        
     ##cat(x) check if command looks ok then run with system, copy cat(x) output to shell and check if it works
 
     g.st=paste0("awk '$2 ==",chr,"' ",  file, " | grep ", gene, " | cut -d ' ' -f4 | sed 's/,.*//' ")
 
     g.end=paste0("awk '$2 ==",chr,"' ",  file, " | grep ", gene, " | cut -d ' ' -f5 | sed 's/.*,//' ")
 
+   
+    
     window.st <- as.numeric(system(g.st, intern=TRUE)) - cw
     
     window.end <- as.numeric(system(g.end, intern=TRUE)) + cw
@@ -403,6 +439,9 @@ haps.range<- function(file1, file2, cw,population="EUR", maf=0.05){
     
 }
 
+
+
+
 #' Extracts snp eaf from legend file for a set of snps
 #'
 #' This function allows you extract snp info from legend file for a range of snps
@@ -444,7 +483,8 @@ snp.eaf<- function(file1, snps,population="EUR"){
 #' Total gene and ASE counts, per fsnp, per individual
 #' 
 #' Get total and AS counts per snp per individual
-#' @param x DT with ASE and GT created from reading vcf#' @param y data table with total counts for samples
+#' @param x DT with ASE and GT created from reading vcf
+#' @param y data table with total counts for samples
 #' @param z data table with each row the genotype for 1 rsnp coded as 0,1,-1 or 2, output from a rec_mytrecase_rSNPs
 #' @keywords counts gene ASE 
 #' @export
@@ -467,17 +507,17 @@ tot.ase_counts <- function(x,y=NULL,z=NULL){
         colnames(tmp3)=gsub("_AS","",as)
         tmp3 <- t(tmp3)
 
-        } else {
-            rownames(tmp2)  <- paste0(x$id,".n")
-            rownames(tmp12) <- paste0(x$id, ".m")
-            colnames(tmp2) <- colnames(tmp12) <- gsub("_AS","",as)
-            tmp3 <- t(rbind(tmp2,tmp12))
-            tmp3 <- tmp3[,sort(colnames(tmp3), decreasing=T)]
-        }
+    } else {
+        rownames(tmp2)  <- paste0(x$id,".n")
+        rownames(tmp12) <- paste0(x$id, ".m")
+        colnames(tmp2) <- colnames(tmp12) <- gsub("_AS","",as)
+        tmp3 <- t(rbind(tmp2,tmp12))
+        tmp3 <- tmp3[,sort(colnames(tmp3), decreasing=T)]
+    }
     if(is.null(z)){
         return(tmp3)
     } else {
-    
+        
         ## add gene counts to ase
         y2 <- y[,which(names(y) %in% rownames(tmp3)), with=FALSE]
         tmp4 <- cbind(t(y2), tmp3)
@@ -584,11 +624,11 @@ filt.rsnp <- function(geno.exp,ase=5, n=5, rem=NULL){
 
 #' function for filtering fsnps, allows to select filtering if n=0 or n=m (likely GT error), also option to remove fsnps with less than cut-off total ASE counts in all samples, INPUT matrix
 #'
-#' This function allows you to test whether a rsnp has enough het inds with a certain number of ASE counts
+#' This function allows you to test whether a fsnp has enough het inds with a certain number of ASE counts
 #' @param c.ase matrix output of tot.ase_counts
 #' @param ase total ase cut-off default is 5 counts, trecase default 5
 #' @param min.ase.snp per snp ase cut-off
-#' @param n minimun number of individuals het for rsnp with counts >=ase, trease default 5
+#' @param n minimun number of individuals het for fsnp with counts >=ase, trecase default 5
 #' @param gt.err optional parameter, if "yes" it sets to m=0 when corresponding n=0 or n=m (likely GT error, homo called het), defaults to NULL
 #' @param rem whether to exclude fsnps with less than min.ase.snps ASE counts in all samples, defaults to "yes", otherwise set it to null
 #' @keywords filtering matrix m counts
@@ -618,7 +658,7 @@ filt.fsnp <- function(c.ase,ase=5, min.ase.snp=5, n=5, gt.err=NULL, rem="yes"){
     if(nrow(c.ase[A,,drop=FALSE]) < n ) return("Not enough individuals with sufficient ASE counts per exonic snp")
     ## remove
     if(is.null(rem)) return(c.ase)
-    tmp = c.ase[,m.col]
+    tmp = c.ase[,m.col, drop=FALSE]
     keep=colnames(tmp)[colSums(tmp)!=0]  ## 
     s=sapply(keep, function(i) sub("\\.m","",i))
     k= sapply(s, function(i) grep(i, colnames(c.ase), value=T))
@@ -1113,7 +1153,7 @@ var.r.d <- function(rna,dna,variable=NULL,range=NULL){
 #' @keywords common variants RNA DNA
 #' @export
 #' @return data table containing variants genotyped commonly by DNA and RNA, indicating concordance based on same genotype.
-#' convert ()
+#' convert2 ()
 convert2 <- function(dna,rna, chr, prefix=NULL){
     DT <- merge(rna[CHROM==chr,][,CHROM:=as.numeric(CHROM)], dna, by=c("CHROM","POS","REF","ALT"), suffixes=c("_RNA","_DNA"))
 
@@ -1125,28 +1165,78 @@ convert2 <- function(dna,rna, chr, prefix=NULL){
         rna_GT <- paste0(dna_GT,"_RNA")  ## GTs
         dna_GT <- paste0(dna_GT,"_DNA")
     }  
-    
+
+    ## recode to 0-2 scale
+
+    DT <- rec_add(DT)
     
     #cols<-paste0(cols_pre, "_GT")
-for(i in 1:length(prefix)){
-	## DT[,paste0(prefix[i],"_Concordance"):="Discordant"]
-	## DT[get(paste0(rna_GT)) == "./.", paste0(prefix[i],"_Concordance"):=NA]
-	## DT[get(dna_GT[i])==get(rna_GT[i]), paste0(prefix[i],"_Concordance"):="Concordant"]	
-    DT[,paste0(prefix[i],"_N_errors"):=0]##[get(paste0(prefix[i],"_Concordance"))=="Concordant", paste0(prefix[i],"_N_errors"):=0]
-    DT[get(rna_GT[i]) == "./.", paste0(prefix[i],"_N_errors"):=NA]
-    DT[ get(dna_GT[i]) == "0|0" & (get(rna_GT[i]) == "1/0" | get(rna_GT[i]) == "0/1"), paste0(prefix[i],"_N_errors"):=1]
-    DT[ get(dna_GT[i]) == "0|0" & get(rna_GT[i]) == "1/1", paste0(prefix[i],"_N_errors"):=2]
-    DT[ get(dna_GT[i]) == "1|1" & get(rna_GT[i]) == "0/0", paste0(prefix[i],"_N_errors"):=2]  
-    DT[ get(dna_GT[i]) == "1|1"  & (get(rna_GT[i]) == "1/0" | get(rna_GT[i]) == "0/1"), paste0(prefix[i],"_N_errors"):=1]   
-    DT[ (get(dna_GT[i]) == "0|1" | get(dna_GT[i]) == "1|0" ) & (get(rna_GT[i]) == "1/1" | get(rna_GT[i]) == "0/0"), paste0(prefix[i],"_N_errors"):=1]
+    for(i in 1:length(prefix)){
      
-}
+        DT[  , paste0(prefix[i],"_N_errors"):= abs(get(dna_GT[i]) - get(rna_GT[i]) )]
+        ## DT[ get(dna_GT[i]) == 0 & get(rna_GT[i]) == 2, paste0(prefix[i],"_N_errors"):=2]
+        ## DT[ get(dna_GT[i]) == 2 & get(rna_GT[i]) == 0, paste0(prefix[i],"_N_errors"):=2]  
+        ## DT[ get(dna_GT[i]) == 2  & (get(rna_GT[i]) == 1, paste0(prefix[i],"_N_errors"):=1]   
+        ## DT[ (get(dna_GT[i]) == 1 ) & (get(rna_GT[i]) == 2 | get(rna_GT[i]) == 0), paste0(prefix[i],"_N_errors"):=1]
+        
+    }
     return(DT)
 
 }    
 
+#' Select common samples from dna and rna and look for concordance, adapted from convert2
+#'
+#' This function allows you to: select variants that are in the same position and same REF and ALT in DNA and RNA; Add column error type for each SNP per sample; assumes same name for same sample in RNA or DNA. Only uses het SNPs with ASE counts.
+#' @param DT data table with DNA and RNA GT and ASE, one chromosome
+#' @param error charater with type of error 
+#' @keywords common variants RNA DNA
+#' @export
+#' @return data table, with number of samples with a particular type of error ("hom2het", "het2hom", "hom2hom") or  missing GT. Also adds correct.per column which is the percentage of samples with correct genotype excluding missing samples
+#' convert3 ()
 
- #' get N-errors per sample for a chr, based on Cinciantti.various.R
+convert3 <- function(DT){
+
+    dna_GT <- grep("GT_DNA", names(DT), value=TRUE)
+    prefix <- gsub("GT_DNA", "",dna_GT)   ## sample
+    rna_GT <- grep("GT_RNA", names(DT), value=TRUE) ## GTs
+    ase <- grep("ASE", names(DT), value=TRUE) ##ASE 
+
+    error=c ("hom2het", "het2hom", "hom2hom", "missing")
+
+    for(j in error){
+        
+        for(i in 1:length(prefix)){
+           	
+            DT[,paste0(prefix[i],j):=0]
+            DT[get(rna_GT[i]) == "./.", paste0(prefix[i], j):=NA]
+            
+            if(j == "hom2het"){
+                dt <- data.table(dna=c("0|0", "1|1"), rna=c("0|1", "1|0"))
+                DT[ get(dna_GT[i]) %in%  dt$dna  & get(rna_GT[i]) %in% dt$rna & get(ase[i])>0 , paste0(prefix[i],j):=1]
+
+            } else if (j == "het2hom") {
+                dt <- data.table(dna=c("0|1", "1|0"), rna=c("0|0", "1|1"))
+                DT[ get(dna_GT[i]) %in%  dt$dna  & get(rna_GT[i]) %in% dt$rna , paste0(prefix[i],j):=1]
+
+            } else if (j == "hom2hom") {    
+                dt <- data.table(dna=c("0|0", "1|1"), rna=c("1|1", "0|0"))
+                DT[ (get(dna_GT[i]) ==  dt$dna[1]  & get(rna_GT[i]) == dt$rna[1]) | (get(dna_GT[i]) ==  dt$dna[2]  & get(rna_GT[i]) == dt$rna[2])  , paste0(prefix[i],j):=1]
+            } else { ## missing GT          
+                DT[get(rna_GT[i]) == "./.", paste0(prefix[i], j):=1]
+            }
+        }
+        DT[ , eval(j):=rowSums(DT[,paste0(prefix, j), with=F], na.rm=T)]
+        DT[ , paste0(prefix, j) := NULL ]
+    }
+
+    ## add column with percentage of correct samples excluding missing
+    DT[ , correct.per:= (length(rna_GT) - rowSums(DT[,error, with=F]))*100/(length(rna_GT) - get(error[4]))]
+    
+    return(DT)
+
+}    
+
+#' get N-errors per sample for a chr, based on Cinciantti.various.R
 #'
 #' This function allows you to: summarize errors across samples per chr
 #' @param dna_rna_10 data table with DNA and RNA info, one chromosome, output from convert2 function
@@ -1156,6 +1246,7 @@ for(i in 1:length(prefix)){
 #' @export
 #' @return data table containing variants genotyped commonly by DNA and RNA, indicating concordance based on same genotype indicating 0,1 or 2 errors of RNA relative to DNA
 #' N_error2 ()
+
 N_error2 <- function(dna_rna_10,format=NULL,col=NULL) {
         sum_errors <- N_error2_sub(dna_rna_10)
         temp1 <- N_error2_sub2(sum_errors,format)
@@ -1252,7 +1343,7 @@ err.dp <- function(DT, GT=c("het","homo"), x=150) {
     }
     
     gt.e <- lapply(seq_along(samp), function(i) {
-        ## concordance b DP
+        ## concordance by DP
         dt <- DT[(get(gt.dna[i])==gt[1] | get(gt.dna[i])==gt[2]) &
                  (get(paste0(samp[i],"_GT_RNA"))==gt.rna[1] | get(paste0(samp[i],"_GT_RNA"))==gt.rna[2]), .N, by=get(paste0(samp[i],"_DP"))]
 
@@ -1270,7 +1361,9 @@ err.dp <- function(DT, GT=c("het","homo"), x=150) {
     conc <- rowSums(all[,grep("N.ok", names(all)),with=F], na.rm=T)
     all2 <- rowSums(all[,grep("N.all", names(all)),with=F], na.rm=T)
     ## group DP>=150
-    p=data.table(p=c(conc[which(all$get %in% 1:x)], sum(conc[which(all$get %in% (x+1):nrow(all))]))/c(all2[which(all$get %in% 1:x)], sum(all2[which(all$get %in% (x+1):nrow(all))])), DP=all$get[1:(x+1)])
+    p=data.table(p=c(conc[which(all$get %in% 1:x)],
+                     sum(conc[which(all$get %in% (x+1):nrow(all))]))/c(all2[which(all$get %in% 1:x)], sum(all2[which(all$get %in% (x+1):nrow(all))])),
+                 DP=all$get[1:(x+1)])
    return(p)
 }
 
@@ -1350,7 +1443,7 @@ prop_het <- function(f.ase, rp.f,gene){
     ## run fisher's exact test for each fsnp, takes hets and no-hets to work out odds ratio
     mat <- rbind(sam.hets[names(ref.hets)], sam.nohets[names(ref.hets)], ref.hets, ncol(tmp)-ref.hets)
     fish <- apply(mat,2, function(i){
-        f=fisher.test(matrix(i,nrow=2),alternative="two.sided")
+        f=fisher.test(x=matrix(i,nrow=2),alternative="two.sided")
         v=c(f$estimate, f$p.value)
         names(v) <- c("OR", "pvalue")
         return(v)
@@ -1462,3 +1555,315 @@ rec_unphase_rSNPs <- function(y, z=NULL){
         }
     return(y)
 }       
+
+
+#' Calculates % of posterior distribution out of region of rejection 1 dimension
+#' 
+#' @param rej numeric with length of rejection (usually 1.96*prior)
+#' @param post data table with posterior draws by gene and snp
+#' @param par name of parameter to extract
+#' @keywords posterior region of rejection
+#' @export
+#' @return data table with Gene_id, rSNP, % of region of rejection, paramter
+#' per.post()
+
+per.post <- function(rej, post, par){
+
+    ## get total number of rows by gene-snp
+    tot <- post[, .N, .(Gene_id, rSNP)]
+
+    ## get total number of rows out of rej
+    out <- post[abs(get(par)) > rej, .N, .(Gene_id, rSNP)]
+
+    ## get %
+
+    tmp <- merge(out,tot, by=c("Gene_id", "rSNP"), suffixes=c(".OutOfRej",".total"))
+    tmp[ , PerOutRej:= N.OutOfRej*100/N.total]
+
+    tmp <- tmp[order(-PerOutRej, Gene_id)]
+
+    return(tmp)
+
+}
+
+    
+##' new version to summarize genotype errors
+##'
+##' @param DT data table with numeric cols sample_GT_N_errors
+##' @param x whether to summarise data with mean and sd or median and IQR, defaults to mean/sd
+##' @keywords format errors
+##' @export
+##' @return data table with summary of errors or xtable
+##' new_err()
+
+new_err <- function(DT, x=NULL){
+    e <- grep("N_errors", names(DT))
+    tmp <- DT[, e, with=F]
+
+    if(is.null(x)){
+        x=c("mean", "sd")
+    } else {
+        x=c("median", "IQR")
+    }
+           
+    p0 <- lapply(x, function(i) get(i)(apply(tmp, 2, function(j) sum(j==0, na.rm=T))))
+    p1 <- lapply(x, function(i) get(i)(apply(tmp, 2, function(j) sum(j==1, na.rm=T))))
+    p2 <- lapply(x, function(i) get(i)(apply(tmp, 2, function(j) sum(j==2, na.rm=T))))
+    na <- lapply(x, function(i) get(i)(apply(tmp, 2, function(j) sum(is.na(j), na.rm=T))))
+
+    
+    dt <- data.table("Errors"=c(0,1,2,"Missing"), Mean=round(unlist(lapply(list(p0,p1,p2,na), '[[' ,1))), sd= round(unlist(lapply(list(p0,p1,p2,na), '[[' ,2))) )
+
+    ## format names of dt
+    x1 <- mapply( function(i,j) get(i)(j),
+                 i=c("firstup", "toupper"),
+                 j=x,
+                 USE.NAMES=F)
+                 
+    setnames(dt, c("Mean", "sd"), x1)
+    dt[ ,`%`:= round(100*get(x1[1])/sum(get(x1[1])[1:3]),2)][Errors=="Missing", `%`:=NA]
+    #dt[ ,`%`:= round(100*Mean/sum(Mean[1:3]),2)][Errors=="Missing", `%`:=NA]
+    
+    
+    return(dt)
+    
+}
+
+
+
+##' summarize total genotype errors
+##'
+##' @param DT data table with numeric cols sample_GT_N_errors, output from convert2
+##' @keywords format errors
+##' @export
+##' @return data table with summary of errors or xtable
+##' tot_err()
+
+tot_err <- function(DT){
+    e <- grep("N_errors", names(DT))
+    tmp <- DT[, e, with=F]
+
+          
+    
+    dt <- data.table(Errors=c(0,1,2,"Missing"), N=c(sum(!is.na(tmp) & tmp ==0),
+                                                    sum(!is.na(tmp) & tmp ==1),
+                                                    sum(!is.na(tmp) & tmp ==2),
+                                                    sum(is.na(tmp))))
+    dt[ ,`%`:=round(N*100/sum(N), 2)]
+    
+    return(dt)
+    
+}
+
+
+
+
+#' converts first character of string to upper case
+#' @param x character vector
+#' @export
+#' @return vector with first character of each element in upper case
+#' first up
+
+firstup <- function(x) {
+  substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+  x
+}
+
+
+##' combine errors table before and after QC in an xtable
+##'
+##' @param dt1 output from new_err before QC
+##' @param dt2 output from new_err after QC
+##' @param col1 latex color for after columns, defaults to blue!30!red
+##' @param col2 color for before columns, defaults to black!20!blue
+##' @param cap character vector with caption, defaults to NULL
+##' @export
+##' @return xtable with comparison
+##' comp.x()
+
+comp.x <- function(dt1, dt2, col1="blue!30!red", col2="black!20!blue", cap=NULL){
+
+    l <- list(dt1, dt2)
+    n <- unique(unlist(lapply(l, names)))
+    g <- grep("%", n, value=T)
+    n[n==g] <- paste0("\\",g)
+    
+                  
+    cols <- unlist(lapply(c(col1, col2), function(i) paste0("{\\textcolor{", i, "}{" , n[-1], "}}")))
+
+    tmp2 <- Reduce(function(a,b) merge(a,b, by="Errors"), l)
+    addtorow <- list()
+    addtorow$pos <- list(0, 0)
+    addtorow$command <- c(paste0("&\\multicolumn{3}{c}{\\textcolor{", col1, "}{Before QC}} & \\multicolumn{3}{c}{\\textcolor{", col2, "}{After QC}} \\\\\n"),
+                          paste(paste(c(n[1], cols), collapse=" & "), "\\\\\n") )
+
+    if(is.null(cap)){
+        x <- xtable(tmp2)
+    } else {
+        x <-xtable(tmp2, caption=cap)
+
+    }
+    
+    
+    align(x) <- rep("r", ncol(tmp2)+1)
+    print(x , add.to.row=addtorow, include.colnames=F, include.rownames = FALSE, NA.string="-", booktabs = TRUE,   sanitize.text.function = function(x) {x})
+
+}
+
+#' Get the proportion of concordance of RNA to DNA of particular GT by DP per sample, numeric cols for GT
+#'
+#' This function allows you get the proportion of concordance of RNA to DNA of particular GT by DP per sample
+#' @param DT data table with RNA and DNA genotypes in scale 0-2, RNA depths
+#' @param GT character vector with GT of DNA to consider ("homo", "het")
+#' @param x value to group DP to visualise better concordance
+#' @keywords concordance variants RNA DNA
+#' @export
+#' @return data table containing proportion of concordant GT in RNA by DP
+#' err2.dp ()
+
+err2.dp <- function(DT, GT=c("het","homo"), x=150) {
+    ## samples prefix
+    gt.dna <- grep("GT_DNA",names(DT), value=T)
+    samp <- gsub("_GT_DNA","", gt.dna)
+    gt <- 1 ## dna/rna het
+    if(GT=="homo"){
+        gt <- c(0,2)        
+    }
+    
+    gt.e <- lapply(seq_along(samp), function(i) {
+        
+         ## concordance by DP
+        dt <- rbindlist(lapply(gt, function(j) DT[get(gt.dna[i]) ==j & get(paste0(samp[i],"_GT_RNA")) ==j, .N, by=get(paste0(samp[i],"_DP"))]))
+        dt <- dt[,.(N=sum(N)),get]
+
+        ## total SNPs  excluding missing values
+        dt2 <- rbindlist(lapply(gt, function(j) DT[get(gt.dna[i]) ==j & !is.na(get(paste0(samp[i],"_GT_RNA"))), .N, by=get(paste0(samp[i],"_DP"))]))
+        dt2 <- dt2[,.(N=sum(N)),get]
+                
+        dt3 <- merge(dt,dt2,by="get",all.y=T,sort=T,suffixes=c(paste0(".ok.",i),paste0(".all.",i)))
+        dt3[is.na(dt3)] <- 0
+        return(dt3)
+    })
+    ## merge gt.e datatables to get concordance across samples   
+    all <- Reduce(function(a,b) merge(a, b, by = "get", all = TRUE), gt.e)
+    ## get results by DP
+    conc <- rowSums(all[,grep("N.ok", names(all)),with=F], na.rm=T)
+    all2 <- rowSums(all[,grep("N.all", names(all)),with=F], na.rm=T)
+    ## group DP>=150
+    p=data.table(p=c(conc[which(all$get %in% 1:x)],
+                     sum(conc[which(all$get %in% (x+1):nrow(all))]))/c(all2[which(all$get %in% 1:x)], sum(all2[which(all$get %in% (x+1):nrow(all))])),
+                 DP=all$get[1:(x+1)])
+   return(p)
+}
+
+
+#' Get number of fSNps by depth
+#'
+#' @param DT data table with RNA and DNA genotypes in scale 0-2, NA and RNA depths
+#' @param x value to upper-bound DP, defaults o none as null 
+#' @export
+#' @return data table containing cumulative proportion of fSNPs by depth
+#' fsnps.depth()
+#'
+fsnps.depth <- function(DT, x=NULL){
+    ## get genotype cols to get baseline NAs
+    gt.rna <- grep("GT_RNA",names(DT), value=T)
+    ## get prefix to get DP per sample
+    samp <- gsub("_GT_RNA","", gt.rna)
+    ## exclude missing calls, depth =0
+    dt <- rbindlist(lapply(samp, function(j) DT[get(paste0(j,"_DP")) !=0 , .N, by=get(paste0(j,"_DP"))]))
+    dt <- dt[,.(N=sum(N)),get] 
+    names(dt) <- c("Depth", "fSNPs")
+    setkey(dt,Depth)
+    ## restrict to upper-bound Depth
+    if(!is.null(x)){
+        up.depth <- sum(dt[Depth>x, fSNPs])
+        dt <- dt[Depth<=x,  ][Depth==x, fSNPs:= up.depth]
+    }
+    
+    dt[, fSNPS.cum:=cumsum(fSNPs)]
+    ## get cumulative proportion of fSNPs by Depth
+    dt[, fsnps.cum.prop:=fSNPS.cum/sum(fSNPs)]
+    return(dt)
+}
+
+#' Get the proportion of concordance of RNA to DNA of particular GT by a fSNP variable (fisher p-value), numeric cols for GT
+#'
+#' This function allows you get the proportion of concordance of RNA to DNA of particular GT by variable that doesnt change with sample, only by fSNP
+#' @param col name of col with varibale to stratify errors
+#' @param x min value for depth to exclude fSNPs from analysis, defaults to 10
+#' @param DT data table with RNA and DNA phased genotypes and col. SAMPLES in RNA and DNA are in teh SAME order!!!
+#' @keywords concordance variants RNA DNA
+#' @export
+#' @return data table containing proportion of concordant GT in RNA by a user selected variable
+#' err2.var ()
+
+err2.var <- function(col,x=10,  DT) {
+    ## samples prefix
+    gt.dna <- grep("GT_DNA",names(DT), value=T)
+    gt.rna <- grep("GT_RNA",names(DT), value=T)
+    samp <- gsub("_GT_DNA","", gt.dna)    
+    setkeyv(DT,col)
+    ## concordant hets by fsnp
+
+    gt.hets <- rbindlist(lapply(1:nrow(DT), function(j) {
+        ## select samples in rna above x DP
+        samp.dp <-samp[which(DT[j,paste0(samp, "_DP"), with=F] >= x)]
+        d <- which(DT[j, paste0(samp.dp, "_GT_DNA"), with=F]==1)
+        r <- which(DT[j, paste0(samp.dp, "_GT_RNA"), with=F]==1)
+        dat.tab <- data.table(concordant.hets=length(which(r %in% d)), total.hets=length(d), below.dp=length(samp)- length(samp.dp))
+        dat.tab[, prop.het:=concordant.hets/total.hets]
+        return(dat.tab)
+        }))
+    ## concordant hom
+    gt <- c(0,2)
+    gt.hom  <- rbindlist(lapply(1:nrow(DT), function(j) {
+        data.table(Reduce("+", lapply(gt, function(i) {
+            samp.dp <-samp[which(DT[j,paste0(samp, "_DP"), with=F] >= x)]
+            d <- which(DT[j, paste0(samp.dp, "_GT_DNA"), with=F]==i)
+            r <- which(DT[j, paste0(samp.dp, "_GT_RNA"), with=F]==i)
+            dt <- data.table(length(which(r %in% d)), length(d))
+            names(dt) <- c("concordant.hom", "total.hom")
+            ##names(dt) <- paste(c("conc.", "total."),i)
+            return(dt)
+        })))
+    }))
+    
+    gt.hom[, prop.hom:= concordant.hom/total.hom]
+    ## combine homs and hets
+
+    comb <- cbind(DT[, .(id_RNA, gene_id_RNA, pval=get(col))], gt.hets, gt.hom)
+    names(comb) <- gsub("_RNA","", names(comb))
+    ## add totals
+    comb[, concordant.total:=concordant.hets + concordant.hom]
+    comb[, total:=total.hets + total.hom]
+    comb[ ,prop.conc:=concordant.total/total]
+    comb[, errors:=total -concordant.total]
+    return(comb)
+}
+
+
+
+##' Format simulation table as an xtable
+##'
+##' @param dt data table made for SuppFig1 in geu_Figs.R
+##' @param cap caption for table
+##' @export
+##' @return xtable
+##' table.sim()
+
+table.sim <- function(dt, cap=""){
+   
+    addtorow <- list()
+    addtorow$pos <- list(0, 0)
+    addtorow$command <- c(paste0("& &True&\\multicolumn{3}{c}{External panel}\\\\\n"),
+                          "& Model & Hap & Pop & RP & Sample\\\\\n" )
+
+    dt[Est=="bj", Est:="$\\widehat{\\beta_{aFC}}$"][Est=="bj_CI", Est:="$\\beta_{aFC}$ in 95\\%CI"]
+    dt[Est=="null_CI", Est:="Null in 95\\%CI"]
+    x <- xtable(dt, caption=cap)
+    
+    align(x) <- rep("l", ncol(dt)+1)
+    print(x , add.to.row=addtorow, include.colnames=F, include.rownames = FALSE, NA.string="-", booktabs = TRUE,   sanitize.text.function = function(x) {x})
+
+}

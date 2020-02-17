@@ -6,7 +6,7 @@ source('/home/ev250/Cincinatti/Functions/various.R')
 #' Get counts per gene from bam files and gtf file
 #' 
 #' use STAR bam output to get a DT with raw counts per gene
-#' @param egb exons by gene, outout from egb
+#' @param ebg exons by gene, genomics ranges object to extract exon coordinates
 #' @param samp name of dir with STAR bam file
 #' @param bam.name name of bam file, same for all samples as output from STAR, defaults to STAR name
 #' @param mode="Union", input for summarizeOverlaps, 

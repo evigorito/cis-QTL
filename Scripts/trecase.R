@@ -4,8 +4,8 @@ library(rstan)
 library(cowplot)
 library(MASS)
 #library(asSeq)
-library(emdbook) #simulate beta binomial
-library(betareg)
+library(emdbook)
+library(betareg) #simulate beta binomial
 library(parallel)
 library(reshape2)
 library("bayesplot")

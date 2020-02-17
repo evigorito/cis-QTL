@@ -26,11 +26,24 @@ group_counts <- function(gene_info, raw.counts, counts.out, cov.out){
     gene_metadata <- fread(gene_info)
     gene_metadata <- gene_metadata[, .(gene_id, percentage_gc_content)]
     gene_metadata[, percentage_gc_content:=as.numeric(percentage_gc_content)]
-    
-    size_factors = rasqualCalculateSampleOffsets(counts_matrix, gene_metadata, gc_correct = TRUE)
 
-    ## save files
+    ## save count matrix
+
     write.table(counts, counts.out, row.names=F)
+    
+
+    ## rasqualCalculateSampleOffsets uses smmoth.spline to correct for GC content and doesnt allow missing or Inf values. If this happens catch the error and change 0 counts to 0.1 to overcome issue.
+     
+    
+    size_factors = tryCatch(rasqualCalculateSampleOffsets(counts_matrix, gene_metadata, gc_correct = TRUE), error=function(e) {conditionMessage(e)})
+
+    if(size_factors ==  "missing or infinite values in inputs are not allowed"){
+        counts_matrix[counts_matrix==0] <- 0.1
+        size_factors = rasqualCalculateSampleOffsets(counts_matrix, gene_metadata, gc_correct = TRUE)
+    }
+    
+    
+    ## save file    
     saveRDS(size_factors, cov.out)
 }
       
