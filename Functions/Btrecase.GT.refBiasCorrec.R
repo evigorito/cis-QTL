@@ -347,10 +347,15 @@ btrecase.gt.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.s
                                     mod <- stan_model(stan.model)
                                   
                                     stan.full <- mclapply(stan.in2, function(i) {
-
-                                        samp <- sampling(mod,data=i, cores=1, refresh=0, pars="bj")
-                                        s <- summary(samp, pars='bj', use_cache=F, probs=probs)$summary
-                                      
+                                        post <- sampling(mod,data=i, cores=1, refresh=0 , pars='bj')
+                                        s <- summary(post, pars='bj', use_cache=F, probs=probs)$summary
+                                        ##samp <- sampling(mod,data=i, cores=1, refresh=0, pars="bj")
+                                        ## s <- summary(samp, pars='bj', use_cache=F, probs=probs)$summary
+                                        e <- rstan::extract(post, pars="bj")
+                                        ## calculate proportion of post <0
+                                        post.neg <- sum(e$bj<0)/length(e$bj)
+                                        ## add to s
+                                        s <- cbind(s['bj',, drop=F], post.prop.neg=post.neg)
                                         unload.ddl(mod) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
                                         return(s)
                                     })
@@ -468,6 +473,12 @@ btrecase.gt.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.s
             stan.neg <-  mclapply(in.neg, function (i) {
                 samp <- sampling(mod2,data=i, cores=1, refresh=0, pars="bj")
                 s <- summary(samp, pars='bj', use_cache=F, probs=probs)$summary
+                ## extract params from posterior
+                e <- rstan::extract(samp, pars="bj")
+                ## calculate proportion of post <0
+                post.neg <- sum(e$bj<0)/length(e$bj)
+                ## add to s
+                s <- cbind(s['bj',, drop=F], post.prop.neg=post.neg)
                 
                 unload.ddl(mod2) ##removing unnecessary dlls, when they reach 100 R gives error https://github.com/stan-dev/rstan/issues/448
                 return(s)
