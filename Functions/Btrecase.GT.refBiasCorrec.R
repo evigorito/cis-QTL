@@ -326,6 +326,7 @@ btrecase.gt.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.s
                                             l <- in.neg.beta.prob.eff2(i, covar=covariates)
                                             ## add prior
                                             ## if k=1 I need to make as.array, otherwise stan takes vector as real
+                                            k=unique(sapply(prior,length))
                                             l[['k']] =unique(sapply(prior,length))
                                             if(k==1) {
                                                 l[['aveP']]=as.array(prior$mean)
@@ -440,6 +441,7 @@ btrecase.gt.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.s
                     ## add prior
                     ## if k=1 I need to make as.array, otherwise stan takes vector as real
                     l[['k']] =unique(sapply(prior,length))
+                    k=unique(sapply(prior,length))
                     if(k==1) {
                         l[['aveP']]=as.array(prior$mean)
                         l[['sdP']]=as.array(prior$sd)

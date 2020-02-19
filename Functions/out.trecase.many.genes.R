@@ -435,12 +435,16 @@ add.signif <- function(dt, x1, x2, col){
 #' @param legend.symbol size for legend symbols
 #' @param point size for geom_points
 #' @param colors colors to use for symbols in plot, defaults to c("#999999", "#F0E442", "#0072B2", "#D55E00") for each level of Significance
+#' @param shapevar name of variable to use for shape, defaults to NULL
+#' @param shape character vector with shape to use, names factor in shapevar, values shape, defaults to NULL
+#' @param shape.leg whether to show shape legend, defaults to TRUE
 #' @keywords Btrecase summary plot  
 #' @export
 #' @return ggplot object
 #' btrecase.plot()
 
-btrecase.plot <- function(dt, x1, x2, s=5000, rx=NULL,ry=NULL,xl, yl, col=NULL, title=NULL, title.size=12,axis.title=12, axis.text=10, legend.title=12, legend.text=10, legend.symbol=4, point.size=3, colors=c("#999999", "#F0E442", "#0072B2", "#D55E00")){   
+btrecase.plot <- function(dt, x1, x2, s=5000, rx=NULL,ry=NULL,xl, yl, col=NULL, title=NULL, title.size=12,axis.title=12, axis.text=10, legend.title=12, legend.text=10, legend.symbol=4, point.size=3, colors=c("#999999", "#F0E442", "#0072B2", "#D55E00"), shapevar=NULL, shape=NULL, shape.leg="legend"){
+    
     old.n <- function(x,pat){
         tmp <- grep(pat,x,value=T)
         return(tmp)
@@ -471,8 +475,10 @@ btrecase.plot <- function(dt, x1, x2, s=5000, rx=NULL,ry=NULL,xl, yl, col=NULL, 
             x[, (q.n) := lapply(paste0(q.n,".comp"), function(i) x[[i]])]
         }
     }
-       
-    p <- ggplot(x, aes(get(x1[1]), get(x2[1]), label=Gene_id)) +      
+
+
+
+p <- ggplot(x, aes(get(x1[1]), get(x2[1]))) +      
         geom_errorbarh(aes_string(xmin=x1[2], xmax=x1[3]), linetype=2, colour='grey' ,size=0.1)  +
         geom_errorbar(aes(ymin=get(x2[2]), ymax=get(x2[3])),linetype=2, colour='grey', width=0 ,size=0.1)  +
         theme_bw() +
@@ -482,9 +488,9 @@ btrecase.plot <- function(dt, x1, x2, s=5000, rx=NULL,ry=NULL,xl, yl, col=NULL, 
         geom_rug(col=rgb(.7,0,0,alpha=.2)) +
         geom_vline(xintercept=0,color = "blue") +
         geom_hline(yintercept=0,color = "blue") +
-        geom_abline(intercept=0,slope=1, linetype=2, size=0.5) +
-        guides(colour=guide_legend(override.aes = list(size = legend.symbol)))
-
+        geom_abline(intercept=0,slope=1, linetype=2, size=0.5) 
+        ##guides(colour=guide_legend(override.aes = list(size = legend.symbol)))
+   
     if(!is.null(col)){
         null.cols <- c(x1[4], x2[4])
         
@@ -493,13 +499,60 @@ btrecase.plot <- function(dt, x1, x2, s=5000, rx=NULL,ry=NULL,xl, yl, col=NULL, 
     
         names(colors) <- levels(x[["Signif"]])
         man.col <- colors[names(colors) %in% unique(x$Signif)]
-        
-        p <- p + geom_point(aes(colour=Signif), shape=1, size=point.size) +
-            scale_colour_manual(values=man.col) ##+
-        ##geom_text_repel(aes(label=ifelse(get(x1[1]) %in% x[Gene_id %in% fpg, get(x1[1])], Gene_id, "")))
-    } else {   
-        p <- p + geom_point(shape=1, size=point.size)
+
+        if(is.null(shapevar)){
+            p <- p + geom_point(aes(colour=Signif), shape=1, size=point.size) +
+                scale_colour_manual(values=man.col) ##+
+        } else {
+            man.shape <- shape[names(shape) %in% x[[shapevar]]]
+            p <- p  + geom_point(aes(colour=Signif, shape=get(shapevar)),
+                                 size=point.size) +
+                scale_colour_manual(values=man.col) +
+                scale_shape_manual(values=man.shape) +
+                labs(shape=shapevar)
+        }
+            ##geom_text_repel(aes(label=ifelse(get(x1[1]) %in% x[Gene_id %in% fpg, get(x1[1])], Gene_id, "")))
+    } else {
+        if(is.null(shapevar)){
+            p <- p + geom_point(shape=1, size=point.size)
+        } else {
+             man.shape <- shape[names(shape) %in% x[[shapevar]]]
+             p <- p  + geom_point(aes(shape=get(shapevar)),
+                                 size=point.size) +
+                        scale_shape_manual(values=man.shape) +
+                        labs(shape=shapevar)
+        }
     }
+    
+#############################       
+    ## p <- ggplot(x, aes(get(x1[1]), get(x2[1]), label=Gene_id)) +      
+    ##     geom_errorbarh(aes_string(xmin=x1[2], xmax=x1[3]), linetype=2, colour='grey' ,size=0.1)  +
+    ##     geom_errorbar(aes(ymin=get(x2[2]), ymax=get(x2[3])),linetype=2, colour='grey', width=0 ,size=0.1)  +
+    ##     theme_bw() +
+    ##     xlab(xl) + ylab(yl) +
+    ##     theme(axis.title = element_text(size=axis.title), axis.text.x = element_text(colour="black", size = axis.text),axis.text.y = element_text(colour="black", size = axis.text), legend.title = element_text(size=legend.title), 
+    ##           legend.text = element_text(size=legend.text)) +
+    ##     geom_rug(col=rgb(.7,0,0,alpha=.2)) +
+    ##     geom_vline(xintercept=0,color = "blue") +
+    ##     geom_hline(yintercept=0,color = "blue") +
+    ##     geom_abline(intercept=0,slope=1, linetype=2, size=0.5) +
+    ##     guides(colour=guide_legend(override.aes = list(size = legend.symbol)))
+
+    ## if(!is.null(col)){
+    ##     null.cols <- c(x1[4], x2[4])
+        
+    ##     x[, Signif:="None"][get(null.cols[1])=="no" & get(null.cols[2])=="no", Signif:="Both"][get(null.cols[1])=="no" & get(null.cols[2])=="yes", Signif:=col[1]][get(null.cols[1])=="yes" & get(null.cols[2])=="no", Signif:=col[2]]
+    ##     x[,Signif:=factor(Signif, levels=c("None", col, "Both"))]
+    
+    ##     names(colors) <- levels(x[["Signif"]])
+    ##     man.col <- colors[names(colors) %in% unique(x$Signif)]
+        
+    ##     p <- p + geom_point(aes(colour=Signif), shape=1, size=point.size) +
+    ##         scale_colour_manual(values=man.col) ##+
+    ##     ##geom_text_repel(aes(label=ifelse(get(x1[1]) %in% x[Gene_id %in% fpg, get(x1[1])], Gene_id, "")))
+    ## } else {   
+    ##     p <- p + geom_point(shape=1, size=point.size)
+    ## }
 
     
         

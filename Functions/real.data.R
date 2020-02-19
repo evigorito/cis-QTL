@@ -1089,22 +1089,33 @@ var.e <- function(genes=NULL,path,pattern,noGT,le.file,hap.file){
 
 info.cut <- function(stan.noGT, rp.r, info){
     
-    ## Calculate Var(E(G)) for each snp 
-    var.e1 <-var.eg(stan.noGT)
+    ## Calculate Var(E(G)) for each snp
+
+   
+    var.e1 <- sapply(stan.noGT, function(i) {
+        pg <- sapply(i$NB$p.g, function(k) sum(as.numeric(names(k))*k))
+        var <- mean(pg^2) - (mean(pg))^2
+        return(var)
+    })
+  
+    ## var.e1 <-var.eg(stan.noGT)
                   
     ## transform to DT
     #var.e1 <- rbindlist(lapply(var.e1, function(i) data.table(snp=names(i), ar.exp.g=i)), idcol="Gene_id")
 
     ## Calculate var(G)
-
+    
     ## get GT from reference panel haps
     tmp2 <- sapply(seq(1,ncol(rp.r),2), function(i) rowSums(rp.r[,i:(i+1), drop=FALSE]))
     if(!is.matrix(tmp2)) tmp2 <- matrix(tmp2,  nrow=1,dimnames=list(unique(names(tmp2)), NULL))
-    ## get var per snp
-    var.g <- apply(tmp2,1,var)
+    ## get var per snp, var in R uses n-1
+    var.g <- apply(tmp2,1,function(i) var(i)*(ncol(tmp2)-1)/ncol(tmp2))
     
     ## r2
     r2 <- var.e1/var.g
+
+    ## info.snp <- var.e1/v.af
+    ## info.snp <- info.snp[info.snp>=info]
 
     r2 <- r2[r2>=info]
     
