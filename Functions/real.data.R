@@ -995,7 +995,8 @@ var.eg <- function(l){
     var_eg <-c()
     for(i in names(l)){
         tmp <- sapply(l[[i]]$NB$p.g, function(k) sum(as.numeric(names(k))*k))
-        var_eg <- c(var_eg,var(tmp))
+        ## correct var, in r is divided n-1
+        var_eg <- c(var_eg,var(tmp)*(length(tmp)-1)/length(tmp))
    
     }
     names(var_eg) <- names(l)
@@ -1098,10 +1099,10 @@ info.cut <- function(stan.noGT, rp.r, info){
         return(var)
     })
   
-    ## var.e1 <-var.eg(stan.noGT)
+    ##var.e1 <-var.eg(stan.noGT)
                   
     ## transform to DT
-    #var.e1 <- rbindlist(lapply(var.e1, function(i) data.table(snp=names(i), ar.exp.g=i)), idcol="Gene_id")
+    ## var.e1 <- rbindlist(lapply(var.e1, function(i) data.table(snp=names(i), ar.exp.g=i)), idcol="Gene_id")
 
     ## Calculate var(G)
     

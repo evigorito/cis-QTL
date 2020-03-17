@@ -1499,9 +1499,15 @@ stan.2T <- function(x,rtag=NULL, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval
     }
     
     if(!is.null(info)){
+        if(is.list(info)){
         info <- lapply(info, function(i) i[DT$tag])
         DT[,(paste("info",names(info), sep="_")):=info]
+        }
+        if(is.numeric(info)){
+            DT[,info:=info]
+        }
     }
+    
     if(!is.null(nfsnps)){
         DT[,n.fsnps:=nfsnps]
     }        

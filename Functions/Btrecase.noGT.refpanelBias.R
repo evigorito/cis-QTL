@@ -174,15 +174,15 @@ btrecase.nogt.rna.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates
         if(!is.null(prefix)) {             
             
             write.table(full.sum, paste0(out,"/",prefix,".noGT.stan.summary.txt"), row.names=FALSE)
-            if(exists("het.f")){
-                write.table(het.f, paste0(out,"/",prefix,".fsnps.het.fisher.test.txt"), row.names=FALSE)
+            if(exists("het.fall")){
+                write.table(het.fall, paste0(out,"/",prefix,".fsnps.het.fisher.test.txt"), row.names=FALSE)
             }
             
         } else {
             
             write.table(full.sum,paste0(out,"/",gene,".noGT.stan.summary.txt"), row.names=FALSE)
             if(exists("het.fall")){
-                write.table(het.f, paste0(out,"/",gene,".fsnps.het.fisher.test.txt"), row.names=FALSE)
+                write.table(het.fall, paste0(out,"/",gene,".fsnps.het.fisher.test.txt"), row.names=FALSE)
             }
             
         }

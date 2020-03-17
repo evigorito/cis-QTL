@@ -6,7 +6,9 @@ library(reshape2)
 library(ggrepel)
 library(gtable)
 library(mixtools)
-
+library(grid)
+library(hrbrthemes)
+library(lemon)
 
 ## Functions to help processing stan output
 
@@ -821,24 +823,47 @@ gene.plot3 <- function(x,ci.x=NULL, y,ci.y=NULL, ci.z=NULL,z,gene,info.s=NULL, f
 #'
 #' This function allows you to  plot all tested associations for a given gene comparing gt,nogt and rna gt of exonic snps
 #' @param x data table with stan output for gt
+#' @param ci whether to add ci to plots, NULL is yes
 #' @param ci.x  numeric with probability of ci containing true value for gt, defaults to 0.95 (2.5 and 97.5)
 #' @param null.x column with null to use if more than one, defualts to NULL
 #' @param y data table with stan output for ngt and rna, output of comp.ngt or var.e merged with rna
 #' @param ci.y  numeric with probability of ci containing true value for rna, defaults to 0.95 (2.5 and 97.5)
 #' @param null.y character with the prefix of the column with null to use if more than one, defualts to NULL
 #' @param ci.z  numeric with probability of ci containing true value for rna, defaults to 0.95 (2.5 and 97.5)
+#' @param yvar name of variable to plot in y axis, defaults to log2_aFC_mean
+#' @param yaxis name for y axis
+#' @param xcoord y coordinate for adding text label to plot, defaults to 0.1
+#' @param ycoord, y coordinate for adding text label to plot, defaults to 0.2
+#' @param colvar name of variable to use for color, defaults to Signif
+#' @param colors.x character vector with colors to use, names factor in colvar for x, values colors
+#' @param colors.y character vector with colors to use, names factor in colvar for y, values colors
+#' @param sizevar name of variable to use for size, defaults to NULL
+#' @param size character vector with size to use, names factor in sizevar, values size, defaults to NULL
+#' @param size.leg whether to show size legend, defaults to TRUE
+#' @param shapevar name of variable to use for shape, defaults to NULL
+#' @param shape character vector with shape to use, names factor in shapevar, values shape, defaults to NULL
+#' @param shape.leg whether to show shape legend, defaults to TRUE
 #' @param z data table with stan output for all combined to indicate comparable snps
 #' @param info.s optional to add info score on second plot, give name of column with info
 #' @param fisher optional to add lowest pvalue for fisher test of p(het) between RNA and DNA, give name of column with fisher test
 #' @param gene character vector with gene ID
 #' @param gene.track ggplot object with gene track, defaults to NULL
 #' @param rsid file with variant information formatted as ensembl ftp.ensembl.org/pub/grch37/current/variation/gvf/homo_sapiens/homo_sapiens-chr22.gvf.gz for appropiate built and chromosome, defaults to none
+#' @param hline, intercept to add hline to indicate significance, defaults to NULL
 #' @keywords stan plot gene-snps compare
 #' @export
 #' @return ggplot object with gt and rna plots only
 #' gene.plot2b()
 
-gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.z=NULL,z,gene,info.s=NULL, fisher=NULL, gene.track=NULL, rsid=NULL){
+gene.plot2b <- function(x,ci=NULL, ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.z=NULL, yvar="log2_aFC_mean", yaxis="eQTL-effect",xcoord=0.1, ycoord=0.2, colvar="Signif", colors.x= setNames(c("goldenrod4", "steelblue4","lightgoldenrod1", "steelblue1"),  c("No, Both", "Yes, Both", "No, obs-GT", "Yes, obs-GT")) ,
+                        colors.y= setNames(c("goldenrod4", "steelblue4","lightgoldenrod1", "steelblue1"), c("No, Both",  "Yes, Both" , paste0(c('No', 'Yes'), ", hidden-GT"))) ,
+                        sizevar=NULL, size=NULL, size.leg="legend",
+                        shapevar=NULL, shape=NULL, shape.leg="legend",
+                        z,gene,info.s=NULL,
+                        fisher=NULL,
+                        gene.track=NULL,
+                        rsid=NULL,
+                        hline=NULL){
     ## select entries for gene
     x <- x[Gene_id==gene,]
     y <- y[Gene_id==gene,]
@@ -857,7 +882,7 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
        
     ## merge x with z to get common snps, null column for x from z
     x <- merge(x, z[,c('Gene_id', 'tag.gt', 'tag.ngt', paste0(null,'.gt')), with=F], by.x=c('Gene_id','tag'), by.y=c('Gene_id', 'tag.gt') , all.x=T)
-    ## for snps in z (comparable SNPs) change position to nogt tag to ease comparison in plots, but only if the tag.ngt are in y (some were removed by cis-window threshold)
+    ## for snps in z (comparable SNPs) change position to nogt tag to ease comparison in plots, but only if the tag.ngt is in y (some were removed by cis-window threshold)
 
     tags.ngt.out.cis <- x[!is.na(tag.ngt) & !tag.ngt %in% y$tag,tag.ngt]
     x[!is.na(tag.ngt) & tag.ngt %in% y$tag, Position:=as.numeric(gsub(":.*","", tag.ngt))/10^6]
@@ -917,41 +942,56 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
     p.z <- ifelse(is.null(ci.z), 0.95, ci.z)
     p.yz <- c(p.y,p.z)
 
-    min.y.axis <- min(c(x[[paste0(pre.x,'_',(1-p.x)*50,'%')]], sapply(1:length(suf), function(i) y[[paste0(pre.y,  '_',(1-p.yz[i])*50,'%' , suf[i])]])))
-    max.y.axis <- max(c(x[[paste0(pre.x,'_',(p.x+(1-p.x)/2)*100, '%')]], sapply(1:length(suf), function(i) y[[paste0(pre.y, '_',(p.yz[i] +(1-p.yz[i])/2)*100,'%' , suf[i])]])))
-
+    if(is.null(ci)){
+        min.y.axis <- min(c(x[[paste0(pre.x,'_',(1-p.x)*50,'%')]], sapply(1:length(suf), function(i) y[[paste0(pre.y,  '_',(1-p.yz[i])*50,'%' , suf[i])]])))
+        max.y.axis <- max(c(x[[paste0(pre.x,'_',(p.x+(1-p.x)/2)*100, '%')]], sapply(1:length(suf), function(i) y[[paste0(pre.y, '_',(p.yz[i] +(1-p.yz[i])/2)*100,'%' , suf[i])]])))
+    } else {
+        max.y.axis <- max(c(x[[yvar]], y[[paste0(yvar, suf[1])]], y[[paste0(yvar, suf[2])]])) + 0.2*max(c(x[[yvar]], y[[paste0(yvar, suf[1])]], y[[paste0(yvar, suf[2])]]))
+        min.y.axis <- 0
+    }
+    
     ## make Signif columns for simplicity
     x[, Signif:="No, Both"]
     x[get(pre) == "yes.gt", Signif:="No, obs-GT"][get(pre)=="no.gt", Signif:="Yes, obs-GT"][get(pre)=="no",Signif:="Yes, Both"]
-    colors <- c("goldenrod4", "steelblue4","lightgoldenrod1", "steelblue1")
+    ##colors <- c("goldenrod4", "steelblue4","lightgoldenrod1", "steelblue1")
     ## colors <- c("red", "blue4", "lightpink3", "skyblue4")
-    names(colors) <- c("No, Both", "Yes, Both", "No, obs-GT", "Yes, obs-GT")
-    man.col <- colors[names(colors) %in% x[["Signif"]]]
+    ## names(colors) <- c("No, Both", "Yes, Both", "No, obs-GT", "Yes, obs-GT")
+    man.col <- colors.x[names(colors.x) %in% x[[colvar]]]
 
     gene.name <- unique(z[Gene_id==gene,Gene_name])
 
     ## add to plot "GT"
-    grob <- grobTree(textGrob("Observed-GT",x=0.1,  y=0.2, hjust=0),
+    grob <- grobTree(textGrob("Observed-GT",x=xcoord,  y=ycoord, hjust=0),
                      gp=gpar(fontsize=10))
 
     ## Add rsid to top cis-SNP, otherwise make col with NA as wont interfere
     if(!is.null(rsid)){
-        top.tag <- unique(x[get(null) == "no", .( log2_aFC_d,tag)][log2_aFC_d == max(log2_aFC_d), tag])[1]
-         if(length(top.tag)){
-             rs <- get.rsid(rsid, snps=top.tag)
-             x <- merge(x, rs, by.x="tag", by.y="SNP", all.x=T)
-             ## select the rsSNP once for labelling
-             rows <- x[is.na(rsid) , which=T]
-             x[ rows, rsid:=""]
-         } else {
-             x[, rsid:=""]
-         }
-        
+        tmpx <- x[get(null) == "no",][, abs.mean:=abs(log2_aFC_mean)]
+        if(nrow(tmpx)){
+            if(yvar == "log2_aFC_mean"){
+                ## need to choose rsid as the sig snps with max abs(yvar) in this case
+                setorder(tmpx, -abs.mean)
+            } else {
+                ## need to order first by yvar but if more than one with top value then I choose abs.mean
+                setorderv(tmpx, c(yvar, "abs.mean"), order=rep(-1,2))
+            }
+            top.tag <- tmpx[1, tag]
+            rs <- get.rsid(rsid, snps=top.tag)
+            x <- merge(x, rs, by.x="tag", by.y="SNP", all.x=T)
+            ## if top tag is repeated (due to comparison with no gt, make sure only one is selected
+            rowpos <- x[!is.na(rsid) , which=T]
+            if(length(rowpos)>1) x[rowpos[-1], rsid:=""]
+            ## select the rsSNP once for labelling
+            rows <- x[is.na(rsid) , which=T]
+            x[ rows, rsid:=""]
+        } else {
+            x[, rsid:=""]       
+        } 
+           
     } else {
-        
         x[, rsid:=""]
     }
-
+    
     ## x[is.na(rsid), rsid:=""]
     setkey(x,rsid)
     lev.rsnp <- levels(as.factor(x$rsid))
@@ -968,19 +1008,20 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
         names(shape)  <- names(size.p) <- lev.rsnp
     }
 
-    
-      
+         
     leg.size=9
     axis.txt=8
     symb.size=2
 
     
-    p <- ggplot(x, aes(x=Position, get(paste0(pre.x,'_mean')), color=Signif, shape=rsid,
+    p <- ggplot(x, aes(x=Position, get(yvar) , color=Signif, shape=rsid,
                        size=rsid))  +
-        geom_hline(yintercept=0) +
-        geom_errorbar(data=x, aes(ymin=get(paste0(pre.x,'_',(1-p.x)*50,'%')), ymax=get(paste0(pre.x,'_', (p.x+(1-p.x)/2)*100, '%'))), color="grey90",linetype="dashed" , width=0.001, size=0.2) +
-        xlim(min.pos-1/10^5,max.pos+1/10^5) +
-        ylim(min.y.axis-0.05, max.y.axis+0.05)+
+        geom_hline(yintercept=0)
+    if(is.null(ci)){
+        p <- p+ geom_errorbar(data=x, aes(ymin=get(paste0(pre.x,'_',(1-p.x)*50,'%')), ymax=get(paste0(pre.x,'_', (p.x+(1-p.x)/2)*100, '%'))), color="grey90",linetype="dashed" , width=0.001, size=0.2)
+    }
+    
+    p <- p + xlim(min.pos-1/10^5,max.pos+1/10^5) +
                                         #labs(color="Significant")+
         geom_point() +
         geom_text_repel(data=x, aes(label=rsid)) +
@@ -999,12 +1040,12 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
                size=F)
 
     cond <- c("DNA pha-SNPs", "Hidden-GT")
-    names(colors) <- c("No, Both",  "Yes, Both" , paste0(c('No', 'Yes'), ", hidden-GT")) 
+    ##names(colors) <- c("No, Both",  "Yes, Both" , paste0(c('No', 'Yes'), ", hidden-GT")) 
     
-    col.cond <- lapply(suf, function(i) colors[names(colors) %in% y[[paste0("Signif", i)]]])
+    col.cond <- lapply(suf, function(i) colors.y[names(colors.y) %in% y[[paste0("Signif", i)]]])
 
     ## add cond to plot 
-    grob <- lapply(cond, function(i) grobTree(textGrob(i, x=0.1,  y=0.2, hjust=0),
+    grob <- lapply(cond, function(i) grobTree(textGrob(i, x=xcoord,  y=ycoord, hjust=0),
                                               gp=gpar(fontsize=10)))
 
 
@@ -1012,7 +1053,15 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
         top.tag <- lapply(suf, function(i){
             g1 <- paste0(null,i,2)
             g2 <- paste0( "log2_aFC_mean", i,2)
-            return(unique(y[get(g1) == "no", .(get(g2), tag)][V1 == max(V1),tag][1]))
+            tmpy <- y[get(g1)=="no"  ][,"abs.mean":=abs(get(g2))]
+            if(yvar == "log2_aFC_mean"){
+                ## need to choose rsid as the sig snps with max abs(yvar) in this case
+                setorder(tmpy, -abs.mean)
+            } else {
+                setorderv(tmpy, c(paste0(yvar,i), "abs.mean"), order=rep(-1,2))
+            }            
+            return(tmpy[1, tag])
+            ##return(unique(y[get(g1) == "no", .(abs(get(g2)), tag)][V1 == max(V1),tag][1]))
         })
         if(length(unlist(top.tag))){
             rs <- get.rsid(rsid,snps= unique(unlist(top.tag)))
@@ -1025,6 +1074,7 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
             }},          
             i=top.tag,
             j=suf, SIMPLIFY=F)
+
     } else {
 
         tmp <- lapply(suf, function(i) y[, paste0("rsid", i):=""])
@@ -1054,9 +1104,7 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
         names(shape) <- i
         return(shape)
     })
-            
-
-                                              
+                                                          
 
     p23 <- lapply(1:length(suf),  function(i) {
  
@@ -1066,13 +1114,16 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
 
         y[get(paste0("Signif", suf[i])) == "Yes" & sign(get(paste0(pre.y, '_',(1-p.yz[i])*50,'%', suf[i]))) != sign(get(paste0(pre.y,"_mean", suf[i]))), paste0(pre.y,'_',(p.yz[i] +(1-p.yz[i])/2)*100,'%', suf[i]) := -get(paste0(pre.y,'_',(p.yz[i] +(1-p.yz[i])/2)*100,'%', suf[i]))]
 
-        p <- ggplot(y, aes(x=Position, get(paste0(pre.y,"_mean", suf[i])),
+        p <- ggplot(y, aes(x=Position, get(paste0(yvar, suf[i])),
                            color=get(paste0("Signif", suf[i])),
                            shape=get(paste0("rsid", suf[i])),
-                           size=get(paste0("rsid", suf[i]))))  +
-            geom_hline(yintercept=0) +
-            geom_errorbar(data=y, aes(ymin=get(paste0(pre.y, '_',(1-p.yz[i])*50,'%', suf[i])), ymax=get(paste0(pre.y,'_',(p.yz[i] +(1-p.yz[i])/2)*100,'%', suf[i]))), color="grey90",linetype="dashed" ,width=0.001, size=0.2) +
-            xlim(min.pos-10/10^6,max.pos+10/10^6) +
+                           size=get(paste0("rsid", suf[i])))) 
+        if(is.null(ci)){
+            
+            p <- p + geom_errorbar(data=y, aes(ymin=get(paste0(pre.y, '_',(1-p.yz[i])*50,'%', suf[i])), ymax=get(paste0(pre.y,'_',(p.yz[i] +(1-p.yz[i])/2)*100,'%', suf[i]))), color="grey90",linetype="dashed" ,width=0.001, size=0.2)
+        }
+        
+        p <- p +  xlim(min.pos-10/10^6,max.pos+10/10^6) +
             ylim(min.y.axis-0.05, max.y.axis+0.05) +
             #labs(color="Significant") +
             ##labs(x="Position (Mb)", y=paste0("log2(aFC): ",cond[i]), color="Significant") +
@@ -1107,6 +1158,12 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
         return(p)
     })
 
+    if(is.null(hline)) hline=0
+    p <- p + geom_hline(yintercept=hline, linetype="dashed")
+    p23 <- lapply(p23, function(i) i+ geom_hline(yintercept=hline, linetype="dashed"))
+    
+    
+
     if(is.null(gene.track)){
         a <- plot_grid(plotlist= c(list(p,p23[[2]])), ncol=1)
     } else {
@@ -1120,7 +1177,7 @@ gene.plot2b <- function(x,ci.x=NULL, null.x=NULL, y, ci.y=NULL, null.y=NULL, ci.
         title.grob <- textGrob(gene.name, 
                    gp=gpar(fontsize=10))
 
-        y.grob <- textGrob("eQTL-effect", 
+        y.grob <- textGrob(yaxis, 
                    gp=gpar( fontsize=11), y = 0.65, rot=90)
 
         ##x.grob <- textGrob("Position",
@@ -2987,3 +3044,80 @@ approx.fdr <- function(dt, fdr=c(0.001, 0.01, 0.05, 0.1), method="Btrecase"){
     setkey(dt, Method, Fdr)
     return(dt[,Fdr.approx:= rep(fdr, length(unique(dt$Method)))])
 }
+
+
+#' fdr plot for exernal validity, using some libraries/commands from Chris
+#' 
+#' @param dt data table with summaries and relevant cols
+#' @param labels for legend, defaults to NULL
+#' @param x name for x col, defaults to TDR_%
+#' @param y name for y col, defaults to Power_%
+#' @param lab.col, name of col to add labels, defaults to "Discoveries"
+#' @param type character specifying if plotting by associations or genes
+#' @param col name of col to get gold standard associations or egenes
+#' @param path whether to link observations by method, defaults to yes
+#' @param label whether to add labels, defaults to yes
+#' @export
+#' @return ggplot object
+#' fdr.plot()
+#'
+fdr.plot <- function(dt, x="TDR_%", y="Power_%", lab.col="Discoveries",  labels=NULL, type=c("associations", "eGenes"), col, path="yes", label="yes"){
+    ##aux function for consistent scales
+    scaleFUN <- function(x) sprintf("%.2f", x)  ## for making consistent scales across plots
+    if(x== "TDR_%") { ## make compatible with cols already in right scale
+        dt[, tdr:=`TDR_%`/100][, power:=`Power_%`/100]
+        x="tdr"
+        y="power"
+    }
+    
+    p <- ggplot(data=dt, aes(get(x),  get(y))) +
+        lemon::geom_pointpath(aes(get(x),  get(y),col=Method,group=Method,pch=Method),lwd=2)+
+        theme_cowplot(font_size=10)
+    if(path=="yes"){
+        p <- p +
+        ##geom_path(mapping= aes(`TDR_%`/100,  `Power_%`/100, color=Method), linetype="dotted") +
+            geom_path( mapping=aes(get(x),  get(y), group=as.factor(Fdr.approx)),color="gray", linetype="dashed",lwd=0.5)
+    }
+    if(label=="yes"){
+        p <- p +
+        ##geom_point(mapping= aes(`TDR_%`/100,  `Power_%`/100, color=Method, shape=Method)) +
+            geom_label_repel(mapping= aes(get(x),  get(y), label=get(lab.col), color=Method ),show.legend=FALSE,size=2 )
+    }
+    p <- p +
+        xlab("Positive predicted value") +
+        ylab("Sensitivity") +
+        ggtitle(paste0('"True" ',type, ': ', unique(dt[[col]]))) +      
+        scale_y_continuous(labels=scaleFUN)
+    if(is.null(labels)){
+        p <- p + scale_colour_ipsum()
+    } else {
+        
+        p <- p +  scale_colour_ipsum(labels=lab) + scale_shape_discrete(labels=lab)
+    }
+    return(p)
+
+}
+
+
+## code for plot with 2 legends at the bottom
+## fdr.pa <- lapply(fdr.tabs, function(i) {
+##     ggplot(data=i) + #, aes(`TDR_%`/100,  `Power_%`/100, color=Method, shape=Method, label=Discoveries )) +
+##         geom_path(mapping= aes(`TDR_%`/100,  `Power_%`/100, color=Method), linetype="dotted") +
+##         geom_path( mapping=aes(`TDR_%`/100,  `Power_%`/100, linetype=as.factor(Fdr.approx)) ,color="gray") +
+##         geom_point(mapping= aes(`TDR_%`/100,  `Power_%`/100, color=Method, shape=Method)) +
+##         geom_text_repel(mapping= aes(`TDR_%`/100,  `Power_%`/100, label=Discoveries, color=Method ) ) +
+##         xlab("Positive predicted value") +
+##         ylab("Sensitivity") +
+##         ggtitle(paste0('"True" associations: ', unique(i[["Gtex-ebv"]]))) +
+##         ## change label in legend
+##         scale_colour_manual(values=c("#009E73", "#CC79A7", "blue"), labels=lab) +
+##         scale_shape_discrete(labels=lab) +
+##         scale_y_continuous(labels=scaleFUN)  +
+##         scale_linetype_manual(name="FDR",
+##                               values=c("solid","twodash", "dotted",  "dashed"))  +
+##         theme(legend.position="bottom", legend.box="vertical", legend.spacing.y=unit(0, 'cm')) +
+##         guides(color = guide_legend(order=1),
+##                linetype = guide_legend(order=2),
+##                shape=FALSE)          #xlim(0.15,1)
+## })
+

@@ -225,7 +225,7 @@ btrecase.gt.refbias <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.s
             
             ##
             
-            if(is.character(snps)){ ## analysis on pre-specified set of rsnps
+            if(is.character(snps)) { ## analysis on pre-specified set of rsnps
                 gt.as <- gt.as[id %in% c(rec.rs$id,fsnps$id),] ## snps and fsnps only
                 ## make sure gt.as (here for fsnps) doesn't have missing values or unphased GT   
                 gt.qc <- vcf.gt.qc(gt.as)

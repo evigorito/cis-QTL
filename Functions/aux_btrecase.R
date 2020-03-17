@@ -10,7 +10,8 @@ source('/home/ev250/Bayesian_inf/trecase/Functions/stan.eff.R')
 
 ##install_github("chr1swallace/GUESSFM", ref="groups")
 library(GUESSFM)
-
+library(parallel)
+options(mc.cores = parallel::detectCores())
 
 #' First aux function to prepare inputs to run Btrecase with or without known rsnp GT: check inputs
 #'
@@ -207,7 +208,10 @@ aux.in3 <- function(gene, ai=NULL, case, rp.f, rp.r, f.ase, counts.g, covariates
     
     if(is.character(stan.f)) return(stan.f)
                        
-    stan.noGT <- mclapply(1:nrow(rp.r), function(i) stan.trecase.rna.noGT.eff2(counts.g, rp.1r=rp.r[i,,drop=FALSE], rp.f, stan.f))
+    stan.noGT <- mclapply(1:nrow(rp.r), function(i) {
+        tmp <- stan.trecase.rna.noGT.eff2(counts.g, rp.1r=rp.r[i,,drop=FALSE], rp.f, stan.f)
+        ## cat(rownames(rp.r)[i], sum(sapply(tmp$NB$p.g, function(k) sum(as.numeric(names(k))*k))), "\n")
+        })
 
     names(stan.noGT) <- rownames(rp.r)
     
@@ -218,9 +222,20 @@ aux.in3 <- function(gene, ai=NULL, case, rp.f, rp.r, f.ase, counts.g, covariates
         snps.ex <- rbind(snps.ex,data.table(id=names(stan.noGT)[w], reason=unlist(stan.noGT[w])))   
         stan.noGT <- stan.noGT[!w]
         rp.r <- rp.r[names(stan.noGT),]
-    }
-    
+    } 
+
+    ##saveRDS(stan.noGT, paste0(out, "/", gene, ".stan.noGT.test.rds"))
     if(all(w)) return("Genotypes of fSNPs are not compatible with reference panel")
+
+    ## remove null elements from stan.noGT (need to investigate why, happened with ENSG00000100364
+    w <- sapply(stan.noGT, is.null)
+    if(any(w)){
+        snps.ex <- rbind(snps.ex,data.table(id=names(stan.noGT)[w], reason="No input made"))
+         stan.noGT <- stan.noGT[!w]
+        rp.r <- rp.r[names(stan.noGT),]
+    }
+    if(all(w)) return("No inputs made for rSNPs")
+    
     ## restrict rsnps to those with info over cut-off
     info.ok <- info.cut(stan.noGT,rp.r,info)
     ## remove snps below cut-off
@@ -254,7 +269,12 @@ aux.in3 <- function(gene, ai=NULL, case, rp.f, rp.r, f.ase, counts.g, covariates
         }
         
         stan.noGT2 <- lapply(stan.noGT, function(i) {
-            l=in.neg.beta.noGT.eff2(i, covar=covariates[names(i$NB$counts),, drop=F])
+            if(!is.matrix(covariates)){
+                l=in.neg.beta.noGT.eff2(i, covar=covariates[names(i$NB$counts),, drop=F])
+            } else {
+                l=in.neg.beta.noGT.eff2(i, covar=covariates)
+            }
+            
             return(l)
         })
 
@@ -406,10 +426,11 @@ btrecase.nogt.rna.refbias.In <- function(gene, chr, snps=5*10^5,counts.f,covaria
         if(is.character(st_end)) stop(st_end)
         if(is.list(st_end)) st_end <- unlist(st_end)
         ## construct cis-window with snps, making sure to include the whole gene
-        m <- min(pos) < st_end[1]
-        M <- max(pos) > st_end[2]
-        cis_window <- ifelse(m, min(pos), st_end[1])
-        cis_window <- c(cis_window, ifelse(M, max(pos), st_end[2]))
+        ## m <- min(pos) < st_end[1]
+        ## M <- max(pos) > st_end[2]
+        ## cis_window <- ifelse(m, min(pos), st_end[1])
+        ## cis_window <- c(cis_window, ifelse(M, max(pos), st_end[2]))
+        cis_window <- setNames(c(min(pos, st_end), max(pos,st_end)), c("start", "end"))
         rp <- haps.range(file1=le.file,file2=h.file,cis_window,population, maf)
         if(!nrow(rp)) stop("No snps extracted from the reference panel")
         w=which(!snps %in% rownames(rp))
@@ -560,7 +581,7 @@ btrecase.nogt.rna.refbias.In <- function(gene, chr, snps=5*10^5,counts.f,covaria
 
                     print(paste("Effective number of exonic SNPs:", nrow(f.ase)))
                    
-
+                    ##if(exists("rp") ) rm(rp) ## liberate space
                     inp <- aux.in3(gene, ai, case=c.ase, rp.f, rp.r, f.ase, counts.g, covariates, min.ase, min.ase.n, info=info, snps.ex, prefix, out)
 
                     if(is.character(inp)) return(inp)
