@@ -1,3 +1,4 @@
+
 // negative binomial and  ASE eQTL with kwown  genotypes  allowing haplotype error, allowing for interaction term between 2 treatments in paired design, with or without covariates and ref bias correction version 2. Updated likelihood and mixed prior.
 			      
 data {
@@ -44,6 +45,10 @@ parameters {
   real<lower=0> theta; //the overdispersion parameter for beta binomial
   vector[K-1] betas; // regression parameters 
   real[L,2] rai0; // random intercept AI
+  vector[N] ui; //random term NB
+  vector[N] uasei; //random term ASE
+  real<lower=0> sdnb; //sd for random term in nb
+  real<lower=0> sdase; // sd for random ase term
   
   }
 
@@ -68,7 +73,7 @@ model {
   vector[Max] ase; //beta-binom terms
   real sAse; // sums beta-binom terms for haplotypes compatible with Gi=g
   real esum; // reduce computation inverse logit (rai0 + bp/bn)
-  vector[L] esum0; // allelic imbalance proportion under the null
+  real esum0; // allelic imbalance proportion under the null
   vector[k] lpsa; // help for mixed gaussians for ba
   vector[k] lpsd; // help for mixed gaussians for bd
   
@@ -89,12 +94,20 @@ model {
     betas[i] ~ cauchy(0,2.5);//prior for the covariates slopes following Gelman 2008
   }
  
-  // allelic imbalance priors
+  // allelic imbalance priors per treatment
   for(i in 1:L) {
-     rai0[i] ~ normal(ai0[i], sdai0[i]);
+    for(t in 1:2){
+      rai0[i,t] ~ normal(ai0[i,t], sdai0[i,t]);
+    }
+    
    }
+  ui ~ normal(0, sdnb);
+  uasei  ~ normal(0, sdase);
 
-  
+  sdnb ~ cauchy(0,1);
+
+  sdase ~ cauchy(0,1);
+
   // mixture of gaussians for ba and bd:
   for(i in 1:k){
     lpsa[i] = normal_lpdf(ba | aveP[i], sdP[i]) + mixP[i];
@@ -115,16 +128,19 @@ model {
   lmuP=cov[,2:cols(cov)]*betasP; // for pso inds
 
   
-  esum0 = inv_logit(rai0);
+  //esum0 = inv_logit(rai0);
   
   for(i in 1:N){ // lmu for each individual
+
+    // go by treatment
+    for(t in 1:2){
     // check skin first
     
-    if(I[i] == 1){ // psoriasis
+    if(t == 1){ //first treatment: bp
 
       for (r in pos:(pos+sNB[i]-1)){ // then genotype
 	
-	lmu[r] = lmuP[i]; // G = 0
+	lmu[r] = lmuP[i] + ui[i]; // G = 0
 
 	lmu[r] = fabs(gNB[r])==1 ? lmu[r] + log1p(1+exp(bp))-log(2) : lmu[r];
 
@@ -132,16 +148,16 @@ model {
 
 	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
 
-	if (ASEi[i,1] == 1) {  // ASE info
+	if (ASEi[i,t] == 1) {  // ASE info
 	
 	 for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
 
-	   esum = inv_logit(rai0[posl] + bp);
+	   esum = inv_logit(rai0[posl,t] + bp);
 	  
-	   p= gase[posl]==1 ? esum: esum0[posl];
+	   p= gase[posl]==1 ? esum: esum0[posl,t];
 	   p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
 	   
-	   ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,2]], p*theta, (1-p)*theta) + log(pH[posl]);
+	   ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
 
 	   posl += 1;
 	}
@@ -152,15 +168,15 @@ model {
       }
 	
       }
-      if(ASEi[i,1] == 0){ // NO ASE, only NB terms for this ind
+      if(ASEi[i,t] == 0){ // NO ASE, only NB terms for this ind
 	target += log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]);
       
       }
 
       pos += sNB[i];
        
-    } else {
-      for (r in pos:(pos+sNB[i]-1)){ //normal skin
+    } else { //t=2, second treatment bn
+      for (r in pos:(pos+sNB[i]-1)){ 
 	
 	lmu[r] = lmuN[i]; // G = 0
 
@@ -170,16 +186,16 @@ model {
 
 	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
 
-	if (ASEi[i,1] == 1) {  // ASE info
+	if (ASEi[i,t] == 1) {  // ASE info
 	  
 	  for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
 	    
-	    esum = inv_logit(rai0[posl] + bn);
+	    esum = inv_logit(rai0[posl,t] + bn);
 	    
-	    p= gase[posl]==1 ? esum : esum0[posl];
+	    p= gase[posl]==1 ? esum : esum0[posl,t];
 	    p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
 	    
-	    ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,2]], p*theta, (1-p)*theta) + log(pH[posl]);
+	    ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
 	    
 	    posl += 1;
 	  }
@@ -190,7 +206,7 @@ model {
 	}
       }
       
-      if(ASEi[i,1] == 0){ // NO ASE, only NB terms for this ind
+      if(ASEi[i,t] == 0){ // NO ASE, only NB terms for this ind
 	target += log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]);
       }
 
