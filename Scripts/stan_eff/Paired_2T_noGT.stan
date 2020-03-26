@@ -72,8 +72,8 @@ model {
   real p; // ase proportion
   vector[Max] ase; //beta-binom terms
   real sAse; // sums beta-binom terms for haplotypes compatible with Gi=g
-  real esum; // reduce computation inverse logit (rai0 + bp/bn)
-  real esum0; // allelic imbalance proportion under the null
+  vector[L] esum; // reduce computation inverse logit (rai0 + bp/bn)
+  vector[L] esum0; // allelic imbalance proportion under the null
   vector[k] lpsa; // help for mixed gaussians for ba
   vector[k] lpsd; // help for mixed gaussians for bd
   
@@ -150,14 +150,12 @@ model {
       	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
 
       	if (ASEi[i,t] == 1) {  // ASE info
-	
+	  esum0=rai0[,t] + uasei[i];  //need to do invlogit below
+	  esum= inv_logit(esum0 + bp);
       	 for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
-
-      	   esum = inv_logit(rai0[posl,t] + uasei[i] + bp);
-	   esum0= inv_logit(rai0[posl,t] + uasei[i]);
 	  
-      	   p= gase[posl]==1 ? esum: esum0;
-      	   p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
+      	   p= gase[posl]==1 ? esum[posl]: inv_logit(esum0[posl]);
+      	   p= gase[posl]==-1 ? 1-esum[posl] : p;  // haplotype swap
 	   
       	   ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
 
@@ -189,13 +187,12 @@ model {
 	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
 
 	if (ASEi[i,t] == 1) {  // ASE info
+	    esum0=rai0[,t] + uasei[i];
+	    esum= inv_logit(esum0 + bp);
 	  
 	  for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
 	    
-	    esum = inv_logit(rai0[posl,t] + bn);
-	    esum0= inv_logit(rai0[posl,t] + uasei[i]);
-	    
-	    p= gase[posl]==1 ? esum : esum0;
+	    p= gase[posl]==1 ? esum : inv_logit(esum0);
 	    p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
 	    
 	    ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
