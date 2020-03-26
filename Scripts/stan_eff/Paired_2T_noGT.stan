@@ -72,7 +72,7 @@ model {
   real p; // ase proportion
   vector[Max] ase; //beta-binom terms
   real sAse; // sums beta-binom terms for haplotypes compatible with Gi=g
-  vector[L] esum; // reduce computation inverse logit (rai0 + bp/bn)
+  vector[L] esum; // reduce computation inverse logit (rai0 + uasei + bp/bn)
   vector[L] esum0; // allelic imbalance proportion under the null
   vector[k] lpsa; // help for mixed gaussians for ba
   vector[k] lpsd; // help for mixed gaussians for bd

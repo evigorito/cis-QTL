@@ -3,16 +3,15 @@
 			      
 data {
   int<lower=0> N; // number  individuals with NB info
-  int<lower=0> G; // number of total genotypes for all individuals NB
   int<lower=0> A; // number of individuals ASE info
   int<lower=0> L; // length of vectors with n counts,  p(H) and ai0 
   int<lower=0> K; // number of covariates
   int<lower=0> k; // number of Gaussians for eQTL effect prior
   int Y[N,2]; // total gene counts for each treatment
-  int sNB[N]; //  number of possible genotypes NB for each individual
-  vector[N] gNB; // each geno NB
-  vector[G] pNB; // prob for each geno NB
-  int gase[L]; // genotype rsnp ASE individuals
+  //int sNB[N]; //  number of possible genotypes NB for each individual
+  // vector[N] gNB; // each geno NB
+  // vector[G] pNB; // prob for each geno NB
+  // int gase[L]; // genotype rsnp ASE individuals
   int m[A,2]; // total ase counts for each treatment
   int n[L,2]; //n counts for ASE ind
   vector[L] pH; //p(H) for ASE ind
@@ -65,7 +64,7 @@ model {
   int pos; // to advance through NB terms (1-G)
   int posl; // to advance through ASE terms (1-L)
   vector[N] lmu1; // help to construct linear pred
-  vector[G] lmu; // linear predictor log scale
+  real lmu; // help with linear predictor log scale
   vector[G] ltmp; //  log NB likelihood
 
 
@@ -134,92 +133,53 @@ model {
 
     // go by treatment
     for(t in 1:2){
-    // check skin first
-    
+   
     if(t == 1){ //first treatment: bp
       
+      lmu = lmuP[i] + ui[i]; // G = 0
+      lmu = fabs(g[i])==1 ? lmu  + log1p(1+exp(bp))-log(2) : lmu;
+      lmu = g[i]==2 ? lmu + bp : lmu;
 
-      for (r in pos:(pos+sNB[i]-1)) { // then genotype
-	
-      	lmu[r] = lmuP[i] + ui[i]; // G = 0
+      target += neg_binomial_2_lpmf(Y[i] | exp(lmu),phi);
 
-      	lmu[r] = fabs(gNB[r])==1 ? lmu[r] + log1p(1+exp(bp))-log(2) : lmu[r];
-
-      	lmu[r] = gNB[r]==2 ? lmu[r] + bp : lmu[r];
-
-      	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
-
-      	if (ASEi[i,t] == 1) {  // ASE info
-	
-      	 for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
-
-      	   esum = inv_logit(rai0[posl,t] + uasei[i] + bp);
-	   esum0= inv_logit(rai0[posl,t] + uasei[i]);
-	  
-      	   p= gase[posl]==1 ? esum: esum0;
-      	   p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
-	   
-      	   ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
-
-      	   posl += 1;
-      	}
-      	sAse = log_sum_exp(ase[1:h2g[r]]);
-	
-      	target +=  log_sum_exp(ltmp[r] , sAse );
-	
-      }
-	
-      }
-      if(ASEi[i,t] == 0){ // NO ASE, only NB terms for this ind
-	target += log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]);
+    } else { // second treatment
       
-      }
+      lmu = lmuN[i] + ui[i]; // G = 0
+      lmu = fabs(g[i])==1 ? lmu  + log1p(1+exp(bn))-log(2) : lmu;
+      lmu = g[i]==2 ? lmu + bn : lmu;
 
-      pos += sNB[i];
-       
-    } else { //t=2, second treatment bn
-      for (r in pos:(pos+sNB[i]-1)){ 
-	
-	lmu[r] = lmuN[i]+ ui[i]; // G = 0
+      target += neg_binomial_2_lpmf(Y[i] | exp(lmu),phi);
+    }
 
-	lmu[r] = fabs(gNB[r])==1 ? lmu[r] + log1p(1+exp(bn))-log(2) : lmu[r];
-
-	lmu[r] = gNB[r]==2 ? lmu[r] + bn : lmu[r];
-
-	ltmp[r] = neg_binomial_2_lpmf(Y[i] | exp(lmu[r]), phi) + log(pNB[r]);
-
-	if (ASEi[i,t] == 1) {  // ASE info
-	  
-	  for (x in 1:h2g[r]){  // look at the haps compatibles with Gi=g
-	    
-	    esum = inv_logit(rai0[posl,t] + bn);
-	    esum0= inv_logit(rai0[posl,t] + uasei[i]);
-	    
-	    p= gase[posl]==1 ? esum : esum0;
-	    p= gase[posl]==-1 ? 1-esum : p;  // haplotype swap
-	    
-	    ase[x] = beta_binomial_lpmf(n[posl] | m[ASEi[i,t+1]], p*theta, (1-p)*theta) + log(pH[posl]);
-	    
-	    posl += 1;
-	  }
-	  	 
-	  sAse = log_sum_exp(ase[1:h2g[r]]);	 
-	  target +=  log_sum_exp(ltmp[r] , sAse );	  
-	
-	}
-      }
-      
-      if(ASEi[i,t] == 0){ // NO ASE, only NB terms for this ind
-	target += log_sum_exp(ltmp[pos:(pos+sNB[i]-1)]);
-      }
-
-      pos += sNB[i];
-
-	
-      }
-       
-  }
- 
-}
+    pos=1;
     
+    for(i in 1:A){ //ASE
 
+      for (t in 1:2){
+	    if(t==1){ // first treament
+	      for(r in pos:(pos+s[i]-1)){	  
+		  esum0=rai0[,t] +uasei[i];
+		  esum=inv_logit(esum0 + bp);
+		  p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
+		  p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
+		  ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
+		}
+	      target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
+	     
+		    
+	    } else {
+	       for(r in pos:(pos+s[i]-1)){
+		 ei0[,t] +uasei[i];
+		 esum=inv_logit(esum0 + bn);
+		 p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
+		 p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
+		 ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
+	       }
+	       target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
+	       
+	    }
+	    
+      }
+       pos=pos+s[i];
+    }
+    
