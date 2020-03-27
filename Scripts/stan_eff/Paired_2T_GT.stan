@@ -19,8 +19,8 @@ data {
   real[L,2] sdai0; // standard deviation for allelic imbalance estimate for each haplotype for each sample, log scale
   //int s[A]; // number of haplotypes per individual
   matrix[N,1+K] cov;
-  int ASEi[N,4]; // index to link NB with ASE, first col is 1 if the individual has NB and ASE info, 0 otherwise. Second col gives index of ASE individual to relate NB with ASE. Same order for second treatment.
-  int h2g[G]; // number of haps per genotype for ASE inds, 0 when ASE is not available
+  // int ASEi[N,4]; // index to link NB with ASE, first col is 1 if the individual has NB and ASE info, 0 otherwise. Second col gives index of ASE individual to relate NB with ASE. Same order for second treatment.
+  //int h2g[G]; // number of haps per genotype for ASE inds, 0 when ASE is not available
   vector[k] aveP; // mean for prior Gaussians for eQTL effect prior
   vector[k] sdP; // sd for prior Gaussians for eQTL effect prior
   vector[k] mixP; // log of mixing proportions for eQTL effect prior
@@ -29,10 +29,10 @@ data {
   
 }
 
-transformed data {
-  int Max; // maximun number of elements in h2g
-  Max = max(h2g);
-}
+/* transformed data { */
+/*   int Max; // maximun number of elements in h2g */
+/*   Max = max(h2g); */
+/* } */
 
 
 parameters {
@@ -45,7 +45,7 @@ parameters {
   vector[K-1] betas; // regression parameters 
   real[L,2] rai0; // random intercept AI
   vector[N] ui; //random term NB
-  vector[N] uasei; //random term ASE
+  vector[A] uasei; //random term ASE
   real<lower=0> sdnb; //sd for random term in nb
   real<lower=0> sdase; // sd for random ase term
   
@@ -65,14 +65,14 @@ model {
   int posl; // to advance through ASE terms (1-L)
   vector[N] lmu1; // help to construct linear pred
   real lmu; // help with linear predictor log scale
-  vector[G] ltmp; //  log NB likelihood
+  //vector[G] ltmp; //  log NB likelihood
 
 
   real p; // ase proportion
-  vector[Max] ase; //beta-binom terms
+  //vector[Max] ase; //beta-binom terms
   real sAse; // sums beta-binom terms for haplotypes compatible with Gi=g
   real esum; // reduce computation inverse logit (rai0 + bp/bn)
-  real esum0; // allelic imbalance proportion under the null
+  vector[L] esum0; // allelic imbalance proportion under the null
   vector[k] lpsa; // help for mixed gaussians for ba
   vector[k] lpsd; // help for mixed gaussians for bd
   
@@ -117,9 +117,8 @@ model {
 
 
   // transformed parameters of no interest
-  pos = 1; // to advance on NB terms
-  posl = 1; // to advance on ASE terms
-  ase = rep_vector(0,Max);  // initialize ase vector to 0s to collect ase termns for each hap pair compatible with Gi=g */
+  pos = 1; // to advance on ASE terms
+  /* ase = rep_vector(0,Max);  // initialize ase vector to 0s to collect ase termns for each hap pair compatible with Gi=g *\/ */
 
   betasN=append_row(anorm, betas); //betas for normal inds
   betasP=append_row(apso, betas); // betas for pso inds
@@ -129,7 +128,7 @@ model {
   
   //esum0 = inv_logit(rai0);
   
-  for(i in 1:N){ // lmu for each individual
+  for(i in 1:N){ //  for each individual
 
     // go by treatment
     for(t in 1:2){
@@ -150,36 +149,32 @@ model {
 
       target += neg_binomial_2_lpmf(Y[i] | exp(lmu),phi);
     }
+    }}
+    
 
     pos=1;
     
     for(i in 1:A){ //ASE
 
       for (t in 1:2){
-	    if(t==1){ // first treament
-	      for(r in pos:(pos+s[i]-1)){	  
-		  esum0=rai0[,t] +uasei[i];
-		  esum=inv_logit(esum0 + bp);
-		  p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
-		  p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
-		  ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
-		}
-	      target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
-	     
-		    
-	    } else {
-	       for(r in pos:(pos+s[i]-1)){
-		 ei0[,t] +uasei[i];
-		 esum=inv_logit(esum0 + bn);
-		 p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
-		 p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
-		 ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
-	       }
-	       target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
-	       
-	    }
-	    
+	esum0=rai0[,t] +uasei[i];
+	if(t==1){ // first treament	
+	  esum=inv_logit(esum0 + bp);
+	} else {
+	   esum=inv_logit(esum0 + bn);
+	}	
+	for(r in pos:(pos+s[i]-1)){
+	   	  
+	  p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
+	  p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
+	      	   
+	  ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
+	}	    
+	target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
       }
-       pos=pos+s[i];
+      pos=pos+s[i];
     }
+    
+	     
+		   
     
