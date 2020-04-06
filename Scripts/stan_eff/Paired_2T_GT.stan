@@ -3,20 +3,19 @@
 			      
 data {
   int<lower=0> N; // number  individuals with NB info
-  int<lower=0> A; // number of individuals ASE info
+  int<lower=0> A; // number of total individuals ASE info
   int<lower=0> L; // length of vectors with n counts,  p(H) and ai0 
   int<lower=0> K; // number of covariates
   int<lower=0> k; // number of Gaussians for eQTL effect prior
   int Y[N,2]; // total gene counts for each treatment
-  //int sNB[N]; //  number of possible genotypes NB for each individual
-  // vector[N] gNB; // each geno NB
-  // vector[G] pNB; // prob for each geno NB
-  // int gase[L]; // genotype rsnp ASE individuals
-  int m[A,2]; // total ase counts for each treatment
+  int g[N]; // rnsp geno for all individuals
+  int s[A]; // number of haplotypes per individual
+  int gase[A]; // genotype ASE individuals
+  int m[A,2]; // total ase counts for each treatment, entry of 0 ifan individual doesnt have ASE ounts
   int n[L,2]; //n counts for ASE ind
   vector[L] pH; //p(H) for ASE ind
-  real[L,2] ai0; // allelic imbalance estimate for each haplotype for each sample
-  real[L,2] sdai0; // standard deviation for allelic imbalance estimate for each haplotype for each sample, log scale
+  real ai0[L,2]; // allelic imbalance estimate for each haplotype for each sample
+  real sdai0[L,2]; // standard deviation for allelic imbalance estimate for each haplotype for each sample, log scale
   //int s[A]; // number of haplotypes per individual
   matrix[N,1+K] cov;
   // int ASEi[N,4]; // index to link NB with ASE, first col is 1 if the individual has NB and ASE info, 0 otherwise. Second col gives index of ASE individual to relate NB with ASE. Same order for second treatment.
@@ -43,7 +42,7 @@ parameters {
   real<lower=0> phi; //overdipersion param for neg binom
   real<lower=0> theta; //the overdispersion parameter for beta binomial
   vector[K-1] betas; // regression parameters 
-  real[L,2] rai0; // random intercept AI
+  matrix[L,2] rai0; // random intercept AI, easy way to access array columns 
   vector[N] ui; //random term NB
   vector[A] uasei; //random term ASE
   real<lower=0> sdnb; //sd for random term in nb
@@ -65,24 +64,20 @@ model {
   int posl; // to advance through ASE terms (1-L)
   vector[N] lmu1; // help to construct linear pred
   real lmu; // help with linear predictor log scale
-  //vector[G] ltmp; //  log NB likelihood
-
+  
 
   real p; // ase proportion
-  //vector[Max] ase; //beta-binom terms
-  real sAse; // sums beta-binom terms for haplotypes compatible with Gi=g
-  real esum; // reduce computation inverse logit (rai0 + bp/bn)
+  vector[L] ltmp;// log BB likelihood
+  vector[L] esum; // reduce computation inverse logit (rai0 + bp/bn)
   vector[L] esum0; // allelic imbalance proportion under the null
   vector[k] lpsa; // help for mixed gaussians for ba
   vector[k] lpsd; // help for mixed gaussians for bd
   
-  /* vector[L] p; // ase proportion */
-  /* vector[L] ase; //beta-binom term */
   vector[K] betasN; //regression parameters for normal skin
   vector[K] betasP; //regression parameters for pso skin
   vector[N] lmuN; //help linear pred normal skin
   vector[N] lmuP; //help linear pred pso skin
-  /* real esum; // reduce computation inverse logit (la0 + bj) */
+
   
   //priors
   theta ~ gamma(1,0.1); //  based on stan code example
@@ -154,27 +149,30 @@ model {
 
     pos=1;
     
-    for(i in 1:A){ //ASE
+  for(i in 1:A){ //ASE
 
-      for (t in 1:2){
-	esum0=rai0[,t] +uasei[i];
+    for (t in 1:2){
+      if(m[i,t]>0){
+	esum0=rai0[,t] + uasei[i];
 	if(t==1){ // first treament	
 	  esum=inv_logit(esum0 + bp);
 	} else {
-	   esum=inv_logit(esum0 + bn);
+	  esum=inv_logit(esum0 + bn);
 	}	
 	for(r in pos:(pos+s[i]-1)){
 	   	  
-	  p[r]=gase[i]==1 ? esum[r] : inv_logit(esum0);
-	  p[r]=gase[i]==-1 ? 1-esum[r] : p[r]; //hap swap
+	  p=gase[i]==1 ? esum[r] : inv_logit(esum0[r]);
+	  p=gase[i]==-1 ? 1-esum[r] : p; //hap swap
 	      	   
-	  ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p[r]*theta, (1-p[r])*theta) + log(pH[r]);
+	  ltmp[r]=beta_binomial_lpmf(n[r,t] | m[i,t],p*theta, (1-p)*theta) + log(pH[r]);
 	}	    
 	target += log_sum_exp(ltmp[pos:(pos+s[i]-1)]);
       }
-      pos=pos+s[i];
     }
+    pos=pos+s[i];
+  }
     
-	     
+}	     
 		   
-    
+
+

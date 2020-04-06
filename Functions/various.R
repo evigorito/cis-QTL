@@ -1377,11 +1377,7 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
     }    
     DT <- data.table(do.call(rbind, l))
     ## convert to log2 all cols except n_eff and Rhat
-    cols.ex <- c("n_eff", "Rhat", "post.prop.neg")
-    ## old version
-    ##DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[c(1:8)]]
-    ##DT[,names(DT)[c(1:8)] := DT2]
-    
+    cols.ex <- c("n_eff", "Rhat", "post.prop.neg") 
     ## new version allowing extra probs cols
     DT2=DT[,lapply(.SD,function(i) i/log(2)), .SDcols=names(DT)[!names(DT) %in% cols.ex] ]
     DT[,names(DT)[!names(DT) %in% cols.ex] := DT2]
@@ -1389,42 +1385,26 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
     ## add col for whether 95-99%CI contains the null (0)
 
     if(is.null(probs)){
-
         ex.prob <- c(0.025, 0.975)
-        ## DT[, null:="yes"][`2.5%` >0 & `97.5%`>0, null:="no"][`2.5%` <0 & `97.5%`<0, null:="no"]
-        ## ## add col with distance to the null if null="no" or length CI if null="yes"
-        ## DT[null=="no" & `2.5%` >0 ,d:= `2.5%`][null=="no" & `2.5%` <0 ,d:= -`97.5%`][null=="yes",d:=abs(`2.5%` - `97.5%`)]
-
     } else {
         ## take the extremes of probs
         ex.prob <- probs[c(1,length(probs))]
     }
     
     exp1 <- paste0("`",ex.prob*100, "%","`")
-    ##exp2 <- paste(c("<", ">"),0)
-    ##tmp <- outer(exp1,exp2 , paste) ## all combinations
-    ##tmp2 <- apply(tmp,2, paste, collapse=" & ") ##vector with expressions for defining null
     exp <- paste0("sign(", exp1[1],") == sign(", exp1[2], ")")
 
     null <- paste("null", 100*diff(ex.prob), sep=".")
-    DT[, eval(null):="yes"][eval(parse(text=exp)), eval(null):="no"]
-    
-    ##DT[, null:="yes"][eval(parse(text=tmp2[1])), null:="no"][eval(parse(text=tmp2[2])), null:="no"]       
+    DT[, eval(null):="yes"][eval(parse(text=exp)), eval(null):="no"]     
     DT[get(null)=="no" & eval(parse(text=exp1[1])) >0, d:= eval(parse(text=exp1[1])) ]
     DT[get(null)=="no" & eval(parse(text=exp1[1])) <0, d:= -eval(parse(text=exp1[2])) ]
     DT[get(null)=="yes", d:=abs(eval(parse(text=exp1[1])) - eval(parse(text=exp1[2])) )]
-    
-    ##DT[null=="no" & eval(parse(text=tmp[1,2])) ,d:= eval(parse(text=exp1[1])) ][null=="no" &  eval(parse(text=tmp[1,1])) ,d:= -as.numeric(eval(parse(text=exp1[2])))][null=="yes",d:=abs(as.numeric(eval(parse(text=exp1[1]))) - as.numeric(eval(parse(text=exp1[2]))))]
 
     cols.ex  <- c(null, cols.ex)
     ## add log2 to relevant cols
     setnames(DT , names(DT)[!names(DT) %in% cols.ex] , paste0("log2_aFC_", names(DT)[!names(DT) %in% cols.ex]))
-    ## DT[, d.aux:=d][get(null)=="yes", d.aux:=-d] ## to sort length CI in ascending order
 
     DT[,tag:=names(x)]
-    
-    ##DT[,d.aux:=NULL]
-    ##setnames(DT , names(DT)[1:(ncol(DT)-1)] , paste0("log2_aFC_", names(DT)[1:(ncol(DT)-1)]))
     DT[,Gene_id:=gene]
     setcolorder(DT , c("Gene_id", "tag", grep("log2", names(DT) , value=T), cols.ex ))  ## names(DT)[c(15,14,1:8,11:13,9:10)])
     DT[,model:=model]
@@ -1480,7 +1460,7 @@ stan.bt <- function(x,y="bj",rtag=NULL, model="trec-ase", nhets=NA, ASE.het=NA, 
 #' @keywords stan multiple snps 2 tissues
 #' @export
 #' @return DT with formated data
-#' stan.bt()
+#' stan.2T()
 
 stan.2T <- function(x,rtag=NULL, gene, EAF=NULL, info=NULL,nfsnps=NULL, min.pval=NULL, probs=NULL){
     DT <- rbindlist(x)

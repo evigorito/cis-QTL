@@ -1,4 +1,4 @@
-
+// WORK IN PROGRESSS
 // negative binomial and  ASE eQTL with unkwown  genotypes  allowing haplotype error, allowing for interaction term between 2 treatments in paired design, with or without covariates and ref bias correction version 2. Updated likelihood and mixed prior.
 			      
 data {
