@@ -167,7 +167,7 @@ baseqtl.gt.paired <- function(gene, chr, snps=5*10^5,counts.f,covariates=1,e.snp
         }
 
         if( (exists("full.sum") & exists("neg.sum")) | exists("neg.sum") ) {
-            if(exists("full.summary")){
+            if(exists("full.sum")){
                 
                 neg.sum <- rbind(full.sum, neg.sum, fill=TRUE)
             }
